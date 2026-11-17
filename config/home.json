@@ -1,53 +1,110 @@
 {
-  "_ghiChu": "File khai báo CẢ NHÀ. App và ESP đều đọc từ đây. Thêm thiết bị = thêm 1 dòng vào 'devices'. Giải thích các trường: xem README.md, mục 'Cấu hình nhà'.",
+  "_ghiChu": "File khai báo CẢ NHÀ. App và ESP đều đọc từ đây. Thêm thiết bị = thêm 1 dòng vào 'devices'. 'node' và 'ch' = null nghĩa là CHƯA CHỐT (chờ biết đi dây). Giải thích các trường: xem README.md, mục 'Cấu hình nhà'.",
   "home": "Nhà của tôi",
   "floors": [
     {
-      "id": "tang-1",
+      "id": "t1",
       "name": "Tầng 1",
-      "rooms": []
+      "rooms": [
+        {
+          "id": "t1-san",
+          "name": "Sân",
+          "node": null,
+          "devices": [
+            { "id": "den-san", "name": "Đèn sân", "type": "light", "ch": null }
+          ]
+        },
+        {
+          "id": "t1-vuon",
+          "name": "Vườn",
+          "node": null,
+          "devices": [
+            { "id": "den-vuon", "name": "Đèn vườn", "type": "light", "ch": null }
+          ]
+        },
+        {
+          "id": "t1-phong-khach",
+          "name": "Phòng khách",
+          "node": null,
+          "devices": [
+            { "id": "den-to",  "name": "Đèn to",  "type": "light", "ch": null },
+            { "id": "den-nho", "name": "Đèn nhỏ", "type": "light", "ch": null }
+          ]
+        },
+        {
+          "id": "t1-bep",
+          "name": "Bếp",
+          "node": null,
+          "devices": [
+            { "id": "den-bep", "name": "Đèn bếp", "type": "light", "ch": null }
+          ]
+        },
+        {
+          "id": "t1-phong-ngu",
+          "name": "Phòng ngủ",
+          "node": null,
+          "devices": [
+            { "id": "den", "name": "Đèn", "type": "light", "ch": null }
+          ]
+        },
+        {
+          "id": "t1-phong-tam-1",
+          "name": "Phòng tắm 1",
+          "node": null,
+          "devices": [
+            { "id": "den-phong-tam", "name": "Đèn phòng tắm", "type": "light", "ch": null }
+          ]
+        },
+        {
+          "id": "t1-phong-tam-2",
+          "name": "Phòng tắm 2",
+          "node": null,
+          "devices": [
+            { "id": "den-toilet",    "name": "Đèn toilet",    "type": "light", "ch": null },
+            { "id": "den-phong-tam", "name": "Đèn phòng tắm", "type": "light", "ch": null }
+          ]
+        }
+      ]
     },
     {
-      "id": "tang-2",
+      "id": "t2",
       "name": "Tầng 2",
       "rooms": [
         {
-          "id": "phong-ngu-1",
-          "name": "Phòng ngủ 1",
-          "node": 1,
-          "devices": [
-            { "id": "den-ngu",    "name": "Đèn ngủ",    "type": "light", "ch": 1 },
-            { "id": "den-tu",     "name": "Đèn tủ",     "type": "light", "ch": 2 },
-            { "id": "den-giuong", "name": "Đèn giường", "type": "light", "ch": 3 },
-            { "id": "den-cay",    "name": "Đèn cây",    "type": "light", "ch": 4 }
-          ]
-        },
-        {
-          "id": "phong-ngu-2",
-          "name": "Phòng ngủ 2",
-          "node": 2,
-          "devices": [
-            { "id": "den-hoc",   "name": "Đèn học",   "type": "light", "ch": 1 },
-            { "id": "den-ngu",   "name": "Đèn ngủ",   "type": "light", "ch": 2 },
-            { "id": "den-decor", "name": "Đèn decor", "type": "light", "ch": 3 }
-          ]
-        },
-        {
-          "id": "phong-trung-tam",
-          "name": "Phòng trung tâm",
-          "node": 3,
-          "devices": [
-            { "id": "den-tran",      "name": "Đèn trần",      "type": "light", "ch": 1 },
-            { "id": "den-trang-tri", "name": "Đèn trang trí", "type": "light", "ch": 2 },
-            { "id": "den-tho",       "name": "Đèn thờ",       "type": "light", "ch": 3 }
-          ]
-        },
-        {
-          "id": "phong-khach",
+          "id": "t2-phong-khach",
           "name": "Phòng khách",
-          "node": 4,
+          "node": null,
           "devices": [
-            { "id": "den-chum", "name": "Đèn chùm", "type": "light", "ch": 1 }
+            { "id": "den", "name": "Đèn", "type": "light", "ch": null }
+          ]
+        },
+        {
+          "id": "t2-phong-tho",
+          "name": "Phòng thờ",
+          "node": null,
+          "devices": [
+            { "id": "den-tho", "name": "Đèn thờ", "type": "light", "ch": null },
+            { "id": "den-ngu", "name": "Đèn ngủ", "type": "light", "ch": null }
+          ]
+        },
+        {
+          "id": "t2-phong-ngu-1",
+          "name": "Phòng ngủ 1",
+          "node": null,
+          "devices": [
+            { "id": "den",           "name": "Đèn",           "type": "light", "ch": null },
+            { "id": "den-phong-tho", "name": "Đèn phòng thờ", "type": "light", "ch": null }
+          ]
+        },
+        {
+          "id": "t2-phong-ngu-2",
+          "name": "Phòng ngủ 2",
+          "node": null,
+          "devices": [
+            { "id": "den-ngu",    "name": "Đèn ngủ",    "type": "light", "ch": null },
+            { "id": "den-tu",     "name": "Đèn tủ",     "type": "light", "ch": null },
+            { "id": "den-giuong", "name": "Đèn giường", "type": "light", "ch": null },
+            { "id": "den-cay",    "name": "Đèn cây",    "type": "light", "ch": null }
           ]
         }
       ]

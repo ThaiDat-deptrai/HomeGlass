@@ -49,7 +49,11 @@ Mỗi thiết bị là **1 dòng**:
 | `type` | Loại thiết bị: `light` (đèn), `fan` (quạt), `plug` (ổ cắm), `lock` (khóa cửa)… |
 | `ch` | Thiết bị nối vào **relay số mấy** trên ESP32-C3 của phòng đó |
 
-Mỗi phòng có `node`: số thứ tự con ESP32-C3 điều khiển phòng đó (1, 2, 3…). `id` của phòng không được trùng trong cả nhà.
+Mỗi phòng có `node`: số thứ tự con ESP32-C3 điều khiển phòng đó (1, 2, 3…).
+
+- `id` của phòng bắt đầu bằng tầng (`t1-`, `t2-`) để không trùng trong cả nhà, ví dụ `t1-phong-khach` và `t2-phong-khach`.
+- `node` hoặc `ch` là `null` nghĩa là **chưa chốt**: chờ biết con ESP nào, relay nào đi dây tới thiết bị đó.
+- **Giữ công tắc tường**: vẫn bật tắt tay được như bình thường, kể cả khi mất mạng hay ESP hỏng.
 
 ## 🔒 Bảo mật
 
