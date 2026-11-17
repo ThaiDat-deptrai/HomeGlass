@@ -1,0 +1,56 @@
+{
+  "_ghiChu": "File khai báo CẢ NHÀ. App và ESP đều đọc từ đây. Thêm thiết bị = thêm 1 dòng vào 'devices'. Giải thích các trường: xem README.md, mục 'Cấu hình nhà'.",
+  "home": "Nhà của tôi",
+  "floors": [
+    {
+      "id": "tang-1",
+      "name": "Tầng 1",
+      "rooms": []
+    },
+    {
+      "id": "tang-2",
+      "name": "Tầng 2",
+      "rooms": [
+        {
+          "id": "phong-ngu-1",
+          "name": "Phòng ngủ 1",
+          "node": 1,
+          "devices": [
+            { "id": "den-ngu",    "name": "Đèn ngủ",    "type": "light", "ch": 1 },
+            { "id": "den-tu",     "name": "Đèn tủ",     "type": "light", "ch": 2 },
+            { "id": "den-giuong", "name": "Đèn giường", "type": "light", "ch": 3 },
+            { "id": "den-cay",    "name": "Đèn cây",    "type": "light", "ch": 4 }
+          ]
+        },
+        {
+          "id": "phong-ngu-2",
+          "name": "Phòng ngủ 2",
+          "node": 2,
+          "devices": [
+            { "id": "den-hoc",   "name": "Đèn học",   "type": "light", "ch": 1 },
+            { "id": "den-ngu",   "name": "Đèn ngủ",   "type": "light", "ch": 2 },
+            { "id": "den-decor", "name": "Đèn decor", "type": "light", "ch": 3 }
+          ]
+        },
+        {
+          "id": "phong-trung-tam",
+          "name": "Phòng trung tâm",
+          "node": 3,
+          "devices": [
+            { "id": "den-tran",      "name": "Đèn trần",      "type": "light", "ch": 1 },
+            { "id": "den-trang-tri", "name": "Đèn trang trí", "type": "light", "ch": 2 },
+            { "id": "den-tho",       "name": "Đèn thờ",       "type": "light", "ch": 3 }
+          ]
+        },
+        {
+          "id": "phong-khach",
+          "name": "Phòng khách",
+          "node": 4,
+          "devices": [
+            { "id": "den-chum", "name": "Đèn chùm", "type": "light", "ch": 1 }
+          ]
+        }
+      ]
+    }
+  ]
+}

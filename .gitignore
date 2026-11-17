@@ -1,0 +1,21 @@
+# ===== Bí mật (mật khẩu WiFi, MQTT...) - KHÔNG BAO GIỜ đưa lên Git =====
+secrets.h
+*.env
+.env
+
+# ===== Arduino / PlatformIO build =====
+build/
+.pio/
+*.bin
+*.elf
+*.map
+
+# ===== Editor / công cụ =====
+.vscode/
+.idea/
+.claude/
+
+# ===== File rác của hệ điều hành =====
+Thumbs.db
+desktop.ini
+.DS_Store
