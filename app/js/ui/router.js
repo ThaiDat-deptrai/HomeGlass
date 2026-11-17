@@ -109,7 +109,12 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
         if (path !== current?.path) go(path, direction(current?.path, path));
     });
 
-    // ---------- Vuốt để đổi tab ----------
+    // ---------- Vuốt để đổi tab (trang bên cạnh chạy theo ngón tay) ----------
+    // Lúc bắt đầu vuốt: dựng sẵn trang bên cạnh ở một lớp cố định, nằm sát mép màn hình.
+    // Kéo tay: cả 2 trang cùng dịch theo ngón tay (chỉ đổi transform -> rất nhẹ).
+    // Thả tay: đủ xa/đủ nhanh thì trượt hẳn sang trang mới, không thì trượt về.
+    let peek = null; // { path, view, cleanup, dir }
+
     function targetOf(dx) {
         const route = routes[current.path];
         if (route.parent) return dx > 0 ? route.parent : null; // màn hình con: chỉ vuốt về
@@ -117,49 +122,114 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
         return tabs[i] || null;
     }
 
-    function springBack() {
+    function mountPeek(path, dir) {
+        const cs = getComputedStyle(root);
+        const r = root.getBoundingClientRect();
+        const padL = parseFloat(cs.paddingLeft);
+        const padR = parseFloat(cs.paddingRight);
+        const view = document.createElement('div');
+        view.className = 'view view--peek is-moving';
+        Object.assign(view.style, {
+            top: `${parseFloat(cs.paddingTop)}px`,
+            left: `${r.left + padL}px`,
+            width: `${r.width - padL - padR}px`,
+            transform: `translateX(${dir * window.innerWidth}px)`
+        });
+        document.body.appendChild(view);
+        return { path, view, dir, cleanup: routes[path].mount(view, ctx) };
+    }
+
+    function dropPeek() {
+        if (!peek) return;
+        if (typeof peek.cleanup === 'function') peek.cleanup();
+        peek.view.remove();
+        peek = null;
+    }
+
+    /** Trang "ló" trở thành trang chính (không dựng lại, giữ nguyên những gì đã vẽ). */
+    function adoptPeek() {
+        const p = peek;
+        peek = null;
+        if (typeof current?.cleanup === 'function') current.cleanup();
+        p.view.getAnimations().forEach(a => a.cancel());
+        p.view.classList.remove('view--peek', 'is-moving');
+        p.view.removeAttribute('style');
+        const credit = root.querySelector('.credit');
+        root.replaceChildren(p.view, credit);
+        current = { path: p.path, view: p.view, cleanup: p.cleanup };
+        paintTabbar(p.path);
+        window.scrollTo(0, 0);
+        // Đổi địa chỉ cho khớp; hashchange thấy trùng trang hiện tại nên bỏ qua
+        const hash = p.path === '/' ? '#/' : '#' + p.path;
+        if (location.hash !== hash) location.hash = hash;
+    }
+
+    /** Đặt vị trí 2 trang theo độ lệch x của trang hiện tại. */
+    function placePages(x) {
+        current.view.style.transform = `translateX(${x}px)`;
+        if (peek) peek.view.style.transform = `translateX(${x + peek.dir * window.innerWidth}px)`;
+    }
+
+    function settleSwipe(commit, velocity) {
+        const W = window.innerWidth;
         const v = current.view;
+        const from = dragX;
+        const to = commit ? -peek.dir * W : 0;
+        const distance = Math.abs(to - from);
+        // Hất nhanh -> trượt nhanh; kéo chậm -> trượt êm. Luôn trong 160–420 ms.
+        const speed = Math.max(Math.abs(velocity), 0.9);
+        const duration = reducedMotion() ? 0 : Math.round(Math.min(420, Math.max(160, distance / speed)));
+        const easing = commit ? 'cubic-bezier(0.2, 0.75, 0.25, 1)' : EASE_SPRING;
         tabbar.classList.remove('is-dragging');
-        paintTabbar(current.path);
-        const from = v.style.transform;
-        v.style.transform = '';
         dragX = 0;
-        if (!from || reducedMotion()) {
-            v.classList.remove('is-moving');
-            return;
+
+        const anims = [v.animate([{ transform: `translateX(${from}px)` }, { transform: `translateX(${to}px)` }], { duration, easing, fill: 'forwards' })];
+        if (peek) {
+            const p0 = from + peek.dir * W;
+            const p1 = to + peek.dir * W;
+            anims.push(peek.view.animate([{ transform: `translateX(${p0}px)` }, { transform: `translateX(${p1}px)` }], { duration, easing, fill: 'forwards' }));
         }
-        const back = v.animate([{ transform: from }, { transform: 'translateX(0)' }], { duration: 480, easing: EASE_SPRING });
-        back.onfinish = back.oncancel = () => v.classList.remove('is-moving');
+        if (commit) paintTabbar(peek.path);
+        else paintTabbar(current.path);
+
+        anims[0].onfinish = () => {
+            if (commit) {
+                adoptPeek();
+            } else {
+                anims.forEach(a => a.cancel());
+                v.style.transform = '';
+                v.classList.remove('is-moving');
+                dropPeek();
+            }
+        };
     }
 
     onSwipe(root, {
         start(dx) {
             if (routes[current.path].parent && dx < 0) return false;
+            dropPeek();
             current.view.classList.add('is-moving');
+            const target = targetOf(dx);
+            if (target) peek = mountPeek(target, dx < 0 ? 1 : -1);
             return true;
         },
         move(dx) {
-            const w = root.clientWidth;
-            const target = targetOf(dx);
-            dragX = target ? dx * 0.85 : rubber(dx, w) * 0.35;
-            current.view.style.transform = `translateX(${dragX}px)`;
-            if (target && !routes[current.path].parent) {
+            const W = window.innerWidth;
+            // Có trang bên cạnh: bám ngón tay 1:1. Ở mép (không còn trang): kéo nặng tay.
+            const towardPeek = peek && Math.sign(dx) === -peek.dir;
+            dragX = towardPeek ? dx : rubber(dx, W) * 0.35;
+            placePages(dragX);
+            if (towardPeek) {
                 tabbar.classList.add('is-dragging');
-                links.style.setProperty('--i', tabIndex(current.path) - Math.max(-1, Math.min(1, dx / w)));
+                links.style.setProperty('--i', tabIndex(current.path) + peek.dir * Math.min(1, Math.abs(dx) / W));
             }
         },
         end(dx, velocity) {
-            const step = decide(dx, velocity, root.clientWidth);
-            const target = targetOf(dx);
-            const wanted = step !== 0 && Math.sign(-dx) === step;
-            if (wanted && target) {
-                tabbar.classList.remove('is-dragging');
-                location.hash = target === '/' ? '#/' : '#' + target;
-            } else {
-                springBack();
-            }
+            const step = decide(dx, velocity, window.innerWidth);
+            const commit = !!peek && step === peek.dir && Math.sign(dx) === -peek.dir;
+            settleSwipe(commit, velocity);
         },
-        cancel: springBack
+        cancel: () => settleSwipe(false, 0)
     });
 
     // ---------- Máy tính: menu trái bám theo con trỏ chuột ----------

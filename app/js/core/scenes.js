@@ -6,6 +6,8 @@
 //   Tạm lưu trên máy này; khi có MQTT sẽ đồng bộ cho cả nhà.
 // =============================================================
 
+import { isLight } from './config.js';
+
 const STORAGE_KEY = 'hg.scenes';
 const ACTIVE_KEY = 'hg.scene.active';
 
@@ -15,7 +17,7 @@ export const SCENE_ICONS = [
 ];
 
 function buildPresets(home) {
-    const lights = home.allDevices.filter(d => d.type === 'light');
+    const lights = home.allDevices.filter(isLight);
     const firstFloor = home.floors[0];
 
     return [

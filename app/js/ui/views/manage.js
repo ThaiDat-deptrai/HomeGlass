@@ -10,6 +10,7 @@ import { html, render, $, $$ } from '../dom.js';
 import { openSheet } from '../sheet.js';
 import { DEVICE_TYPES, deviceIcon, roomIcon, typeLabel } from '../icons.js';
 import * as edit from '../../core/homeData.js';
+import { DRIVERS } from '../../core/stairs.js';
 
 const FLOOR_KEY = 'hg.ui.manageFloor';
 
@@ -64,7 +65,7 @@ export function mount(root, ctx) {
                                         <span class="manage-item__icon"><i class="fa-solid ${deviceIcon(d)}"></i></span>
                                         <span class="manage-item__text">
                                             <strong>${d.name}</strong>
-                                            <small>${typeLabel(d)} · ${d.node === null ? 'Chưa gán ESP' : nodeText(home, d.node) + (d.ch ? ` · Relay ${d.ch}` : ' · Chưa chọn relay')}</small>
+                                            <small>${typeLabel(d)} · ${d.node === null ? 'Chưa gán ESP' : nodeText(home, d.node) + (d.type === 'stairs' ? ` · ${d.steps} bậc` : d.ch ? ` · Relay ${d.ch}` : ' · Chưa chọn relay')}</small>
                                         </span>
                                         <i class="fa-solid fa-chevron-right manage-item__go"></i>
                                     </button>
@@ -145,17 +146,37 @@ export function mount(root, ctx) {
                         <label class="field"><span>Bộ điều khiển</span>
                             <select id="dNode">${nodeOptions(device ? (device.ownNode ?? 'inherit') : 'inherit', true)}</select>
                         </label>
-                        <label class="field field--small"><span>Relay số</span>
+                        <label class="field field--small" id="dChField"><span>Relay số</span>
                             <input type="number" id="dCh" min="1" max="16" placeholder="–" value="${device?.ch ?? ''}" />
                         </label>
+                        <label class="field field--small" id="dStepsField"><span>Số bậc</span>
+                            <input type="number" id="dSteps" min="2" max="32" value="${device?.steps ?? 15}" />
+                        </label>
                     </div>
-                    <p class="field__hint">"Theo phòng": dùng ESP đã gán cho phòng. Relay số = chân relay trên ESP nối tới thiết bị này.</p>
+                    <label class="field" id="dDriverField"><span>Mạch điều khiển các bậc</span>
+                        <select id="dDriver">
+                            ${Object.entries(DRIVERS).map(([id, d]) => html`<option value="${id}" ${id === (device?.driver || 'mcp23017') ? 'selected' : ''}>${d.label} — ${d.note}</option>`)}
+                        </select>
+                    </label>
+                    <p class="field__hint" id="dHint"></p>
                 `);
+                // Cầu thang: hỏi số bậc thay cho số relay
+                const paintType = () => {
+                    const stairs = type === 'stairs';
+                    $('#dChField', el).hidden = stairs;
+                    $('#dStepsField', el).hidden = !stairs;
+                    $('#dDriverField', el).hidden = !stairs;
+                    $('#dHint', el).textContent = stairs
+                        ? 'Mỗi bậc 1 dải LED + 1 module D4184, nối vào mạch mở rộng MCP23017 (tối đa 16 bậc / 1 mạch).'
+                        : '"Theo phòng": dùng ESP đã gán cho phòng. Relay số = chân relay trên ESP nối tới thiết bị này.';
+                };
+                paintType();
                 el.addEventListener('click', e => {
                     const btn = e.target.closest('#dType button');
                     if (!btn) return;
                     type = btn.dataset.type;
                     $$('#dType button', el).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.type === type)));
+                    paintType();
                 });
             },
             footer(el, close) {
@@ -180,7 +201,16 @@ export function mount(root, ctx) {
                     const ch = chRaw === '' ? null : Number(chRaw);
                     if (ch !== null && (!Number.isInteger(ch) || ch < 1 || ch > 16)) return toast('Relay số phải từ 1 đến 16', 'error');
                     const node = readNode($('#dNode').value);
-                    const fields = { name, type, ch, node: node === undefined ? null : node };
+                    const steps = Number($('#dSteps').value);
+                    if (type === 'stairs' && !(Number.isInteger(steps) && steps >= 2 && steps <= 32)) {
+                        return toast('Số bậc phải từ 2 đến 32', 'error');
+                    }
+                    const fields = {
+                        name, type, ch,
+                        node: node === undefined ? null : node,
+                        steps: type === 'stairs' ? steps : null,
+                        driver: type === 'stairs' ? $('#dDriver').value : null
+                    };
                     const targetRoom = $('#dRoom').value;
 
                     if (device) {

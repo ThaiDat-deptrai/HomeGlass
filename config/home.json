@@ -7,7 +7,8 @@
     { "id": 2, "name": "ESP 2", "board": "ESP32-C3" },
     { "id": 3, "name": "ESP 3", "board": "ESP32-C3" },
     { "id": 4, "name": "ESP 4", "board": "ESP32-C3" },
-    { "id": 5, "name": "ESP 5", "board": "ESP32-C3" }
+    { "id": 5, "name": "ESP 5", "board": "ESP32-C3" },
+    { "id": 6, "name": "ESP cầu thang", "board": "ESP32-C3" }
   ],
   "floors": [
     {
@@ -70,6 +71,21 @@
           "devices": [
             { "id": "den-toilet",    "name": "Đèn toilet",    "type": "light", "ch": null },
             { "id": "den-phong-tam", "name": "Đèn phòng tắm", "type": "light", "ch": null }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cau-thang",
+      "name": "Cầu thang",
+      "type": "stairs",
+      "rooms": [
+        {
+          "id": "cau-thang",
+          "name": "Cầu thang",
+          "node": 6,
+          "devices": [
+            { "id": "den", "name": "Đèn cầu thang", "type": "stairs", "steps": 15, "driver": "mcp23017" }
           ]
         }
       ]

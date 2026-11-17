@@ -79,6 +79,11 @@ function splitKey(key) {
 function compactDevice(d) {
     const out = { id: d.id, name: d.name, type: d.type || 'light', ch: d.ch ?? null };
     if (d.node !== null && d.node !== undefined) out.node = d.node;
+    if (out.type === 'stairs') {
+        out.steps = d.steps ?? 15;
+        out.driver = d.driver ?? 'mcp23017';
+        delete out.ch; // cầu thang dùng mạch mở rộng riêng, không dùng 1 relay
+    }
     return out;
 }
 
@@ -117,17 +122,17 @@ export function removeRoom(data, roomId) {
 
 // ---------- Thiết bị ----------
 
-export function addDevice(data, roomId, { name, type = 'light', node = null, ch = null }) {
+export function addDevice(data, roomId, { name, type = 'light', node = null, ch = null, steps = null, driver = null }) {
     const next = clone(data);
     const room = findRoom(next, roomId);
     room.devices = room.devices || [];
     const id = uniqueId(slugify(name), new Set(room.devices.map(d => d.id)));
-    room.devices.push(compactDevice({ id, name: name.trim(), type, node, ch }));
+    room.devices.push(compactDevice({ id, name: name.trim(), type, node, ch, steps, driver }));
     return { data: next, key: `${roomId}/${id}` };
 }
 
 /** Sửa thiết bị; nếu đổi phòng thì key đổi theo -> trả về key mới. */
-export function updateDevice(data, key, { name, type, roomId, node, ch }) {
+export function updateDevice(data, key, { name, type, roomId, node, ch, steps, driver }) {
     const next = clone(data);
     const [oldRoomId, deviceId] = splitKey(key);
     const oldRoom = findRoom(next, oldRoomId);
@@ -137,6 +142,8 @@ export function updateDevice(data, key, { name, type, roomId, node, ch }) {
     if (type !== undefined) device.type = type;
     if (node !== undefined) device.node = node;
     if (ch !== undefined) device.ch = ch;
+    if (steps !== undefined && steps !== null) device.steps = steps;
+    if (driver !== undefined && driver !== null) device.driver = driver;
 
     let newKey = key;
     if (roomId && roomId !== oldRoomId) {

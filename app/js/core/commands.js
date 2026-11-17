@@ -8,6 +8,8 @@
 // Tên phòng, tên đèn đều lấy từ cấu hình nhà, không viết cứng.
 // =============================================================
 
+import { isLight } from './config.js';
+
 /** Bỏ dấu, viết thường, đổi "một/hai" thành số để so khớp dễ hơn. */
 export function normalize(text) {
     return String(text)
@@ -30,7 +32,9 @@ function keepLongest(items, getName) {
     return items.filter(a => !items.some(b => b !== a && getName(b) !== getName(a) && has(getName(b), getName(a))));
 }
 
-const where = device => `${device.room.name} (${device.floor.name})`;
+const where = device => (device.room.name === device.floor.name
+    ? device.room.name
+    : `${device.room.name} (${device.floor.name})`);
 
 export function interpret(text, { home, store, scenes }) {
     const t = normalize(text);
@@ -42,7 +46,7 @@ export function interpret(text, { home, store, scenes }) {
 
     // ----- Hỏi số đèn đang bật -----
     if (/(bao nhieu|may) (cai |bong )?den/.test(t)) {
-        const lights = home.allDevices.filter(d => d.type === 'light');
+        const lights = home.allDevices.filter(isLight);
         const n = store.countOn(lights);
         return { reply: n ? `Đang có ${n} đèn bật.` : 'Tất cả đèn đang tắt.' };
     }
@@ -100,7 +104,7 @@ export function interpret(text, { home, store, scenes }) {
             return { reply: `Có ${targets.length} "${targets[0].name}": ở ${targets.map(d => d.room.name).join(' và ')}. Bạn nói rõ phòng nhé.` };
         }
     } else if (rooms.length || floor || all) {
-        targets = pool.filter(d => d.type === 'light');
+        targets = pool.filter(isLight);
     } else if (has(t, 'den')) {
         return { reply: `Bạn muốn ${verb} đèn phòng nào? Hoặc nói "${verb} hết đèn".` };
     } else {

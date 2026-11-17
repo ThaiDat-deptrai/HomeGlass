@@ -10,6 +10,7 @@ export const DEVICE_TYPES = {
     plug: { label: 'Ổ cắm', icon: 'fa-plug' },
     tv: { label: 'Tivi', icon: 'fa-tv' },
     pump: { label: 'Máy bơm', icon: 'fa-faucet-drip' },
+    stairs: { label: 'Cầu thang', icon: 'fa-stairs' },
     other: { label: 'Khác', icon: 'fa-power-off' }
 };
 

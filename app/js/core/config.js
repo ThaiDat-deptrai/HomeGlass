@@ -8,6 +8,9 @@
 
 const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+/** Đèn cầu thang cũng tính là "đèn" (đếm số đèn bật, kịch bản tắt hết đèn...). */
+export const isLight = device => device.type === 'light' || device.type === 'stairs';
+
 export class ConfigError extends Error {
     constructor(problems) {
         super('Cấu hình nhà có lỗi');
@@ -51,7 +54,8 @@ export function parseHome(data) {
 
     // ----- Tầng -> phòng -> thiết bị -----
     const floors = data.floors.map(f => {
-        const floor = { id: f.id, name: f.name || f.id, rooms: [] };
+        // type "stairs" = khu cầu thang (nằm giữa 2 tầng, có màn hình điều khiển riêng)
+        const floor = { id: f.id, name: f.name || f.id, type: f.type === 'stairs' ? 'stairs' : 'floor', rooms: [] };
         if (!ID_PATTERN.test(f.id || '')) problems.push(`Mã tầng không hợp lệ: "${f.id}"`);
 
         (f.rooms || []).forEach(r => {
@@ -67,12 +71,17 @@ export function parseHome(data) {
                 if (devices.has(key)) problems.push(`Trùng mã thiết bị: "${key}"`);
                 const ownNode = d.node ?? null;
                 checkNode(ownNode, `Thiết bị "${d.name || d.id}"`);
+                if (d.type === 'stairs' && !(Number.isInteger(d.steps) && d.steps >= 2 && d.steps <= 32)) {
+                    problems.push(`Cầu thang "${d.name || d.id}" cần số bậc "steps" từ 2 đến 32`);
+                }
                 const device = {
                     key,
                     id: d.id,
                     name: d.name || d.id,
                     type: d.type || 'light',
                     ch: d.ch ?? null,
+                    steps: d.steps ?? null,     // cầu thang: số bậc
+                    driver: d.driver ?? null,   // cầu thang: mạch điều khiển (mcp23017 | pca9685)
                     ownNode,                   // ESP ghi riêng cho thiết bị (nếu có)
                     node: ownNode ?? room.node, // ESP thực sự điều khiển
                     room,

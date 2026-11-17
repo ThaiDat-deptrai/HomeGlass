@@ -10,6 +10,8 @@ import { deviceIcon, roomIcon } from '../icons.js';
 import { tap } from '../feedback.js';
 import { pop, rollNumber, reducedMotion } from '../motion.js';
 import { onSwipe, decide, rubber } from '../swipe.js';
+import { isLight } from '../../core/config.js';
+import { mountStairs } from './stairs.js';
 
 const FLOOR_KEY = 'hg.ui.floor';
 const PAGE_GAP = 32; // khớp với .pager__track { gap }
@@ -66,9 +68,18 @@ function roomHtml(room) {
         </section>`;
 }
 
-export function mount(root, { home, store, scenes, settings, toast }) {
-    const lights = home.allDevices.filter(d => d.type === 'light');
-    const others = home.allDevices.filter(d => d.type !== 'light');
+/** Nội dung 1 trang: tầng thường -> danh sách phòng; khu cầu thang -> bảng điều khiển riêng. */
+function pageHtml(floor) {
+    const stairs = floor.type === 'stairs' && floor.rooms.flatMap(r => r.devices).find(d => d.type === 'stairs');
+    if (stairs) return html`<div class="stairs-host" data-key="${stairs.key}"></div>`;
+    if (floor.rooms.length) return html`<div class="rooms">${floor.rooms.map(roomHtml)}</div>`;
+    return html`<div class="card empty"><i class="fa-solid fa-couch"></i>${floor.name} chưa có phòng nào.<br><a href="#/manage">Thêm phòng</a></div>`;
+}
+
+export function mount(root, ctx) {
+    const { home, store, scenes, settings, toast } = ctx;
+    const lights = home.allDevices.filter(isLight);
+    const others = home.allDevices.filter(d => !isLight(d));
     const floors = home.floors;
     let floorIndex = clamp(Number(sessionStorage.getItem(FLOOR_KEY)) || 0, 0, floors.length - 1);
 
@@ -108,14 +119,13 @@ export function mount(root, { home, store, scenes, settings, toast }) {
         <div class="pager" id="pager">
             <div class="pager__track" id="track">
                 ${floors.map((f, i) => html`
-                    <div class="pager__page" data-index="${i}" role="tabpanel" aria-label="${f.name}">
-                        ${f.rooms.length
-                            ? html`<div class="rooms">${f.rooms.map(roomHtml)}</div>`
-                            : html`<div class="card empty"><i class="fa-solid fa-couch"></i>${f.name} chưa có phòng nào.<br><a href="#/manage">Thêm phòng</a></div>`}
-                    </div>`)}
+                    <div class="pager__page" data-index="${i}" role="tabpanel" aria-label="${f.name}">${pageHtml(f)}</div>`)}
             </div>
         </div>
     `);
+
+    // Gắn bảng điều khiển cầu thang vào trang của nó
+    const stairsCleanups = $$('.stairs-host', root).map(host => mountStairs(host, ctx, home.devices.get(host.dataset.key)));
 
     const pager = $('#pager', root);
     const track = $('#track', root);
@@ -321,6 +331,7 @@ export function mount(root, { home, store, scenes, settings, toast }) {
     return () => {
         offStore();
         offScenes();
+        stairsCleanups.forEach(fn => fn());
         clearTimeout(settleTimer);
         window.removeEventListener('resize', onResize);
     };

@@ -130,7 +130,7 @@ export function mount(root, { home, store, settings, toast }) {
                 <div class="row">
                     <span class="row__label"><i class="fa-solid fa-circle-info"></i>HomeGlass</span>
                     <a class="row__value" href="https://github.com/ThaiDat-deptrai/HomeGlass" target="_blank" rel="noopener">
-                        Bản 0.3 · <i class="fa-brands fa-github"></i> GitHub
+                        Bản 0.4 · <i class="fa-brands fa-github"></i> GitHub
                     </a>
                 </div>
             </section>

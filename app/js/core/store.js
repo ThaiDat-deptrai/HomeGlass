@@ -34,7 +34,8 @@ export function createStore(initialHome, transport) {
     /** Cấu hình nhà thay đổi (thêm/xóa thiết bị, ESP): cập nhật danh sách theo dõi. */
     function syncHome(home) {
         home.allDevices.forEach(d => {
-            if (!states.has(d.key)) states.set(d.key, { on: null, pending: false });
+            // attrs: cài đặt riêng của thiết bị "xịn" (cầu thang: độ sáng, hiệu ứng, hẹn giờ...)
+            if (!states.has(d.key)) states.set(d.key, { on: null, pending: false, attrs: {} });
         });
         [...states.keys()].forEach(key => {
             if (!home.devices.has(key)) {
@@ -66,6 +67,17 @@ export function createStore(initialHome, transport) {
         onStatus(next) {
             status = next;
             emit({ type: 'status', status });
+        },
+        /** Thiết bị báo cài đặt hiện tại của nó (độ sáng, hiệu ứng...). */
+        onAttrs(key, attrs) {
+            const s = states.get(key);
+            if (!s) return;
+            s.attrs = { ...s.attrs, ...attrs };
+            emit({ type: 'device', key });
+        },
+        /** Sự kiện từ thiết bị, vd cầu thang: { kind: 'motion', dir: 'up' | 'down' } */
+        onEvent(key, detail) {
+            if (states.has(key)) emit({ type: 'event', key, ...detail });
         },
         /** Nhận 1 hoặc nhiều mẫu nhiệt độ của một ESP: [{ t: thời điểm (ms), v: °C }] */
         onTelemetry(nodeId, samples) {
@@ -124,6 +136,22 @@ export function createStore(initialHome, transport) {
             });
             return sent;
         },
+
+        /**
+         * Đổi cài đặt của thiết bị (không phải bật/tắt): hiện ngay trên app,
+         * đồng thời gửi xuống thiết bị. Thiết bị báo lại -> onAttrs.
+         */
+        configure(key, patch) {
+            const s = states.get(key);
+            if (!s) return;
+            s.attrs = { ...s.attrs, ...patch };
+            emit({ type: 'device', key });
+            transport.configure?.(key, patch);
+        },
+
+        /** Chỉ dùng khi thử (demo): giả lập cảm biến thấy người. */
+        simulate: (key, detail) => transport.simulate?.(key, detail),
+        canSimulate: typeof transport.simulate === 'function',
 
         /** Đếm số thiết bị đang bật trong một danh sách. */
         countOn: devices => devices.filter(d => states.get(d.key)?.on === true).length,

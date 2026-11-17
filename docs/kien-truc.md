@@ -31,13 +31,14 @@ App được chia thành **3 lớp**. Mỗi lớp chỉ được gọi lớp **n
 | `core/homeData.js` | Đọc file / bản chỉnh trên máy, **thêm-sửa-xóa phòng, thiết bị, ESP** ngay trong app, tải file về |
 | `core/store.js` | Giữ trạng thái mọi thiết bị + lịch sử nhiệt độ từng ESP. Bấm → gửi yêu cầu → **chờ xác nhận** → mới đổi màu |
 | `core/scenes.js` | Kịch bản có sẵn (tự tính từ cấu hình) + kịch bản tự tạo |
+| `core/stairs.js` | Logic đèn cầu thang (mức sáng từng bậc, hiệu ứng, ban đêm, giờ mặt trời lặn) - giống hệt firmware sẽ chạy |
 | `core/commands.js` | Hiểu câu lệnh tiếng Việt: "tắt đèn phòng khách tầng 1" → danh sách việc |
 | `core/settings.js` | Màu, nền, sáng/tối, độ kính, âm thanh. Lưu trên máy người dùng |
 | **Kết nối** | |
 | `transport/demo.js` | Ngôi nhà ảo để thử giao diện khi chưa có phần cứng |
 | **Giao diện** | |
 | `ui/router.js` | Đổi màn hình theo địa chỉ `#/`, `#/scenes`…, trượt trang, **vuốt ngang để đổi tab** |
-| `ui/views/*.js` | 6 màn hình: Nhà, Nhiệt độ, Kịch bản, Trợ lý, Cài đặt, Phòng & thiết bị |
+| `ui/views/*.js` | 6 màn hình: Nhà, Nhiệt độ, Kịch bản, Trợ lý, Cài đặt, Phòng & thiết bị. `stairs.js` = bảng điều khiển cầu thang (nằm trong trang Nhà) |
 | `ui/swipe.js` | Nhận cử chỉ vuốt ngang (phân biệt với cuộn dọc, lồng nhau được) |
 | `ui/motion.js` | Hiệu ứng: nảy icon, lăn số, trượt vào, đổi chiều cao mượt |
 | `ui/chart.js` | Biểu đồ đường SVG tự viết: rê/chạm để xem giá trị, phím ← → |

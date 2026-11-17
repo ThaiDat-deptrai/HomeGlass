@@ -64,6 +64,11 @@ html:not(.is-ready) *::after {
         var(--bg-base);
 }
 
+/* Thuộc tính hidden luôn thắng (kể cả khi class đã đặt display) */
+[hidden] {
+    display: none !important;
+}
+
 button {
     font: inherit;
     color: inherit;

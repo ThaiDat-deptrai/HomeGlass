@@ -464,8 +464,9 @@
     will-change: transform, opacity;
 }
 
-/* Trang cũ đang trượt đi khi chuyển trang */
-.view--ghost {
+/* Trang cũ đang trượt đi khi chuyển trang / trang bên cạnh đang ló ra khi vuốt */
+.view--ghost,
+.view--peek {
     position: fixed;
     z-index: 40;
     margin: 0;
