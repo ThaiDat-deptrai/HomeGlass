@@ -79,6 +79,7 @@ export function mount(root, ctx) {
         addBubble(text, 'me');
         const result = interpret(text, ctx);
         if (result.actions) store.setMany(result.actions);
+        if (result.scene) ctx.scenes.activate(result.scene.id);
         addBubble(result.reply, 'bot');
         speak(result.reply);
     }

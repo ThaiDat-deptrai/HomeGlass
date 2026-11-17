@@ -15,11 +15,12 @@ function summary(scene) {
 
 export function mount(root, { home, store, scenes, settings, toast }) {
     function sceneCard(scene) {
+        const active = scenes.activeId() === scene.id;
         return html`
-            <article class="scene card" data-id="${scene.id}">
+            <article class="scene card ${active ? 'is-active' : ''}" data-id="${scene.id}">
                 <span class="scene__icon"><i class="fa-solid ${scene.icon}"></i></span>
                 <div class="scene__text">
-                    <h3>${scene.name}</h3>
+                    <h3>${scene.name}${active ? html` <span class="scene__badge">Đang bật</span>` : ''}</h3>
                     <p>${scene.note || summary(scene)}</p>
                 </div>
                 ${scene.preset ? '' : html`
@@ -152,8 +153,7 @@ export function mount(root, { home, store, scenes, settings, toast }) {
         if (btn.dataset.act === 'run') {
             tap(settings);
             store.setMany(scene.actions);
-            card.classList.add('is-run');
-            setTimeout(() => card.classList.remove('is-run'), 700);
+            scenes.activate(scene.id);
             toast(`Đã chạy "${scene.name}"`, 'success');
         } else if (btn.dataset.act === 'edit') {
             openEditor(scene);

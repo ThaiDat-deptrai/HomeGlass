@@ -223,6 +223,9 @@
 }
 
 .chip {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
     flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
@@ -237,11 +240,37 @@
     font-size: 14px;
     font-weight: 600;
     scroll-snap-align: start;
-    transition: transform 0.45s var(--ease-spring);
+    transition: transform 0.45s var(--ease-spring), color 0.4s var(--ease-ios), box-shadow 0.45s var(--ease-ios), border-color 0.4s;
+}
+
+/* Kịch bản đang bật: sáng vàng ấm như đèn (lớp màu nằm sẵn, chỉ đổi độ trong -> mượt) */
+.chip::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(150deg, var(--on-1), var(--on-2));
+    opacity: 0;
+    transition: opacity 0.45s var(--ease-ios);
+}
+
+.chip.is-active {
+    color: var(--on-ink);
+    border-color: color-mix(in srgb, var(--on-1) 80%, transparent);
+    box-shadow: 0 8px 24px var(--on-glow);
+}
+
+.chip.is-active::before {
+    opacity: 1;
 }
 
 .chip i {
     color: var(--accent);
+    transition: color 0.4s var(--ease-ios);
+}
+
+.chip.is-active i {
+    color: #f08a24;
 }
 
 /* ---------- Ô thiết bị ---------- */
@@ -399,6 +428,9 @@
     display: flex;
     align-items: flex-start;
     gap: 32px;
+}
+
+.pager.is-moving .pager__track {
     will-change: transform;
 }
 
@@ -414,14 +446,41 @@
     visibility: hidden;
 }
 
+/* ---------- Đang di chuyển (vuốt / chuyển trang) ----------
+   Tạm tắt kính mờ: làm mờ lại nền ở MỖI khung hình là việc nặng nhất,
+   gây giật trên điện thoại. Nền là màu loang nên mắt gần như không thấy khác. */
+.is-moving .card,
+.is-moving .tile,
+.is-moving .chip,
+.is-moving .segmented,
+.is-moving .bubble,
+.is-moving .room,
+.is-moving .quick {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+}
+
+.view.is-moving {
+    will-change: transform, opacity;
+}
+
+/* Trang cũ đang trượt đi khi chuyển trang */
+.view--ghost {
+    position: fixed;
+    z-index: 40;
+    margin: 0;
+    pointer-events: none;
+}
+
 /* ---------- Thanh điều hướng dưới (điện thoại) ---------- */
 .tabbar {
     position: fixed;
     z-index: 50;
-    left: 50%;
-    bottom: calc(14px + env(safe-area-inset-bottom));
-    transform: translateX(-50%);
+    left: 0;
+    right: 0;
+    bottom: calc(12px + env(safe-area-inset-bottom));
     width: min(calc(100% - 24px), 460px);
+    margin: 0 auto;
     display: flex;
     padding: 6px;
     border-radius: var(--r-pill);
@@ -430,9 +489,24 @@
     backdrop-filter: blur(24px) saturate(160%);
     -webkit-backdrop-filter: blur(24px) saturate(160%);
     box-shadow: 0 12px 40px rgba(20, 30, 60, 0.18);
+    /* Lớp vẽ riêng: tránh lỗi Safari làm thanh "biến mất"/nháy khi nội dung bên dưới đang chuyển động */
+    transform: translate3d(0, 0, 0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    transition: transform 0.35s var(--ease-ios), opacity 0.25s;
 }
 
-.tabbar__brand {
+/* Đang gõ phím (bàn phím ảo mở): giấu thanh dưới để không che ô nhập */
+@media (max-width: 1023px) {
+    .is-typing .tabbar {
+        transform: translate3d(0, calc(100% + 40px), 0);
+        opacity: 0;
+        pointer-events: none;
+    }
+}
+
+.tabbar__brand,
+.tabbar__hover {
     display: none;
 }
 
@@ -486,10 +560,6 @@
 
 .tabbar a[aria-current="page"] {
     color: var(--accent);
-}
-
-.tabbar__credit {
-    display: none;
 }
 
 /* ---------- Dòng bản quyền cuối trang ---------- */
@@ -599,17 +669,36 @@
 @media (min-width: 1024px) {
     .tabbar {
         left: 20px;
+        right: auto;
         top: 20px;
         bottom: 20px;
-        transform: none;
+        margin: 0;
         width: 240px;
         flex-direction: column;
         gap: var(--s-5);
         padding: 22px 14px 18px;
         border-radius: var(--r-xl);
+        overflow: hidden;
+    }
+
+    /* Vệt sáng mềm chạy theo con trỏ chuột */
+    .tabbar::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: radial-gradient(220px circle at var(--mx, 50%) var(--my, -300px), color-mix(in srgb, var(--accent) 18%, transparent), transparent 70%);
+        opacity: 0;
+        transition: opacity 0.4s var(--ease-ios);
+        pointer-events: none;
+    }
+
+    .tabbar:hover::before {
+        opacity: 1;
     }
 
     .tabbar__brand {
+        position: relative;
         display: flex;
         align-items: center;
         gap: 10px;
@@ -638,13 +727,35 @@
         gap: 4px;
     }
 
-    .tabbar__pill {
+    .tabbar__pill,
+    .tabbar__hover {
         width: auto;
         right: 0;
         height: 46px;
         bottom: auto;
-        transform: translateY(calc(var(--i, 0) * (46px + 4px)));
         border-radius: 14px;
+    }
+
+    .tabbar__pill {
+        transform: translateY(calc(var(--i, 0) * (46px + 4px)));
+    }
+
+    /* Ô sáng nhạt bám theo mục chuột đang chỉ vào, trượt có độ nảy */
+    .tabbar__hover {
+        display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
+        background: var(--icon-bg);
+        box-shadow: inset 0 0 0 1px var(--line);
+        opacity: 0;
+        transform: translateY(calc(var(--h, 0) * (46px + 4px))) scale(0.96);
+        transition: transform 0.5s var(--ease-spring), opacity 0.25s var(--ease-ios);
+    }
+
+    .tabbar__links.is-hovering .tabbar__hover {
+        opacity: 1;
+        transform: translateY(calc(var(--h, 0) * (46px + 4px))) scale(1);
     }
 
     .tabbar a {
@@ -663,26 +774,15 @@
     }
 
     .tabbar a:hover:not([aria-current="page"]) {
-        background: var(--icon-bg);
-        color: var(--text-2);
+        color: var(--text);
     }
 
-    .tabbar__credit {
-        display: block;
-        margin-top: auto;
-        padding: 0 8px;
-        font-size: 12px;
-        line-height: 1.5;
-        color: var(--text-3);
+    .tabbar a:hover i {
+        transform: scale(1.08);
     }
 
-    .tabbar__credit strong {
-        color: var(--text-2);
-    }
-
-    /* Trên máy tính đã có dòng bản quyền ở menu trái */
-    .credit {
-        display: none;
+    .tabbar a i {
+        transition: transform 0.4s var(--ease-spring);
     }
 
     #toasts {

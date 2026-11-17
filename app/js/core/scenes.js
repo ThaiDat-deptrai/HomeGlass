@@ -7,6 +7,7 @@
 // =============================================================
 
 const STORAGE_KEY = 'hg.scenes';
+const ACTIVE_KEY = 'hg.scene.active';
 
 export const SCENE_ICONS = [
     'fa-film', 'fa-moon', 'fa-sun', 'fa-door-open', 'fa-house', 'fa-champagne-glasses',
@@ -65,9 +66,53 @@ export function createScenes(initialHome) {
         listeners.forEach(fn => fn());
     }
 
+    // ----- Kịch bản đang bật -----
+    // Bấm chạy kịch bản -> nó "sáng" lên. Khi có thiết bị TRONG kịch bản bị đổi
+    // khác đi (bấm tay, công tắc tường, kịch bản khác...) -> kịch bản tự "tắt".
+    let activeId = null;
+    try {
+        activeId = localStorage.getItem(ACTIVE_KEY);
+    } catch (e) { /* bỏ qua */ }
+
+    function setActive(id) {
+        if (id === activeId) return;
+        activeId = id;
+        try {
+            if (id) localStorage.setItem(ACTIVE_KEY, id);
+            else localStorage.removeItem(ACTIVE_KEY);
+        } catch (e) { /* bỏ qua */ }
+        listeners.forEach(fn => fn());
+    }
+
+    const find = id => [...presets, ...custom].find(s => s.id === id);
+
+    /** Còn đúng với kịch bản không? (thiết bị đang chờ thì xét theo trạng thái nó sắp chuyển sang) */
+    function stillTrue(scene, store) {
+        return scene.actions.every(a => {
+            const s = store.get(a.key);
+            if (!s) return true;
+            if (s.pending) return s.target === !!a.on;
+            return s.on === null || s.on === !!a.on;
+        });
+    }
+
     return {
         list: () => [...presets, ...custom],
-        get: id => [...presets, ...custom].find(s => s.id === id),
+        get: find,
+
+        activeId: () => activeId,
+        activate: id => setActive(id),
+
+        /** Theo dõi thiết bị: kịch bản đang bật mà bị phá vỡ thì tắt nó đi. */
+        watch(store) {
+            const check = () => {
+                if (!activeId) return;
+                const scene = find(activeId);
+                if (!scene || !stillTrue(scene, store)) setActive(null);
+            };
+            store.subscribe(e => { if (e.type === 'device' || e.type === 'timeout') check(); });
+            check();
+        },
 
         /** Thêm mới (không có id) hoặc cập nhật (có id) một kịch bản tự tạo. */
         save({ id, name, icon, actions }) {
@@ -87,6 +132,7 @@ export function createScenes(initialHome) {
 
         remove(id) {
             custom = custom.filter(s => s.id !== id);
+            if (activeId === id) setActive(null);
             persist();
         },
 

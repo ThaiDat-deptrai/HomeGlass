@@ -8,7 +8,7 @@
 import { html, render, $, $$ } from '../dom.js';
 import { deviceIcon, roomIcon } from '../icons.js';
 import { tap } from '../feedback.js';
-import { pop, rollNumber, smoothHeight, reducedMotion } from '../motion.js';
+import { pop, rollNumber, reducedMotion } from '../motion.js';
 import { onSwipe, decide, rubber } from '../swipe.js';
 
 const FLOOR_KEY = 'hg.ui.floor';
@@ -51,7 +51,7 @@ function roomHtml(room) {
                     <h2>${room.name}</h2>
                     <span class="room__meta"></span>
                 </div>
-                ${room.devices.length > 1 ? html`<button class="btn-pill room__all"></button>` : ''}
+                ${room.devices.length ? html`<button class="btn-pill room__all"></button>` : ''}
             </header>
             ${room.devices.length
                 ? html`<div class="tiles">
@@ -141,9 +141,13 @@ export function mount(root, { home, store, scenes, settings, toast }) {
         $('#allOff', root).disabled = n + extra === 0;
     }
 
+    /** Kịch bản đang chạy thì chip "sáng" lên như đèn bật. */
     function drawChips() {
+        const active = scenes.activeId();
         render($('#sceneChips', root), html`${scenes.list().map(s => html`
-            <button class="chip" data-scene="${s.id}"><i class="fa-solid ${s.icon}"></i>${s.name}</button>`)}`);
+            <button class="chip ${s.id === active ? 'is-active' : ''}" data-scene="${s.id}" aria-pressed="${s.id === active}">
+                <i class="fa-solid ${s.icon}"></i>${s.name}
+            </button>`)}`);
     }
 
     function drawTile(key) {
@@ -173,10 +177,26 @@ export function mount(root, { home, store, scenes, settings, toast }) {
     }
 
     // ---------- Lật trang tầng ----------
+    // Trong lúc trượt: cả trang cũ và trang mới đều hiện (is-peek), tắt kính mờ (is-moving).
+    // Trượt xong ("settle"): ẩn trang cũ, bật lại kính mờ.
     const pageWidth = () => (pages[0]?.getBoundingClientRect().width || pager.clientWidth) + PAGE_GAP;
+    let settleTimer = 0;
+
+    function settle() {
+        clearTimeout(settleTimer);
+        pager.classList.remove('is-moving');
+        pages.forEach(p => p.classList.remove('is-peek'));
+    }
 
     function placeTrack(dx = 0, animate = false) {
-        track.style.transition = animate && !reducedMotion() ? 'transform 0.55s var(--ease-ios)' : 'none';
+        if (animate && !reducedMotion()) {
+            pager.classList.add('is-moving');
+            track.style.transition = 'transform 0.5s var(--ease-ios)';
+            clearTimeout(settleTimer);
+            settleTimer = setTimeout(settle, 520);
+        } else {
+            track.style.transition = 'none';
+        }
         track.style.transform = `translateX(${-floorIndex * pageWidth() + dx}px)`;
     }
 
@@ -186,16 +206,18 @@ export function mount(root, { home, store, scenes, settings, toast }) {
     }
 
     function showFloor(index, animate = true) {
-        const done = animate ? smoothHeight(pager) : null;
+        const previous = floorIndex;
         floorIndex = index;
         sessionStorage.setItem(FLOOR_KEY, String(index));
         pages.forEach((p, i) => {
             p.classList.toggle('is-active', i === index);
-            p.classList.remove('is-peek');
+            // Trang cũ (và trang vừa ló ra khi kéo) vẫn hiện trong lúc trượt,
+            // để không bị "biến mất" giữa chừng. settle() sẽ ẩn sau khi trượt xong.
+            if (animate && i === previous && i !== index) p.classList.add('is-peek');
             p.toggleAttribute('inert', i !== index);
         });
-        done?.();
         placeTrack(0, animate);
+        if (!animate) settle();
         drawFloorTabs();
     }
 
@@ -203,7 +225,9 @@ export function mount(root, { home, store, scenes, settings, toast }) {
         start(dx) {
             const target = floorIndex + (dx < 0 ? 1 : -1);
             if (target < 0 || target >= floors.length) return false; // ở mép: nhường cho vuốt đổi tab
+            clearTimeout(settleTimer);
             pages[target].classList.add('is-peek');
+            pager.classList.add('is-moving');
             seg.classList.add('is-dragging');
             return true;
         },
@@ -261,6 +285,7 @@ export function mount(root, { home, store, scenes, settings, toast }) {
         const scene = scenes.get(chip.dataset.scene);
         tap(settings);
         store.setMany(scene.actions);
+        scenes.activate(scene.id);
         toast(`Đã chạy "${scene.name}"`, 'success');
     });
 
@@ -296,6 +321,7 @@ export function mount(root, { home, store, scenes, settings, toast }) {
     return () => {
         offStore();
         offScenes();
+        clearTimeout(settleTimer);
         window.removeEventListener('resize', onResize);
     };
 }

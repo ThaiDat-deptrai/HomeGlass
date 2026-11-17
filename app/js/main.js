@@ -41,7 +41,6 @@ function showConfigError(app, problems) {
 
 async function start() {
     const app = document.getElementById('app');
-    document.getElementById('year').textContent = new Date().getFullYear();
 
     const settings = createSettings();
     settings.apply();
@@ -77,6 +76,16 @@ async function start() {
     const transport = createDemoTransport(home);
     const store = createStore(home, transport);
     const scenes = createScenes(home);
+    scenes.watch(store); // kịch bản đang bật sẽ tự "tắt" khi thiết bị bị đổi khác đi
+
+    // Đang gõ phím trên điện thoại: ẩn thanh dưới để bàn phím không đẩy nó che mất ô nhập
+    const TYPING = 'input[type="text"], input[type="number"], input[type="search"], textarea, select';
+    document.addEventListener('focusin', e => {
+        if (e.target.matches?.(TYPING)) document.documentElement.classList.add('is-typing');
+    });
+    document.addEventListener('focusout', e => {
+        if (e.target.matches?.(TYPING)) document.documentElement.classList.remove('is-typing');
+    });
 
     // Thiết bị không xác nhận trong thời gian cho phép
     store.subscribe(event => {

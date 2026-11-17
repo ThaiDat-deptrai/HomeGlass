@@ -129,8 +129,15 @@
 
 .home-top {
     display: grid;
+    /* minmax(0, …): hàng chip dài KHÔNG được đẩy lưới rộng hơn màn hình
+       (lỗi cũ: trang rộng 387px trên màn 375px -> điện thoại thu nhỏ trang, thanh dưới bị lệch) */
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--s-4);
     margin-bottom: var(--s-5);
+}
+
+.quick {
+    min-width: 0;
 }
 
 .quick__title {
@@ -224,9 +231,27 @@
     transition: transform 0.5s var(--ease-spring), box-shadow 0.4s var(--ease-ios);
 }
 
-.scene.is-run {
-    transform: scale(0.98);
-    box-shadow: 0 0 0 2px var(--accent), 0 10px 30px var(--accent-glow);
+/* Kịch bản đang bật: viền và icon sáng vàng ấm */
+.scene.is-active {
+    border-color: color-mix(in srgb, var(--on-2) 70%, transparent);
+    box-shadow: 0 10px 30px var(--on-glow);
+}
+
+.scene.is-active .scene__icon {
+    background: linear-gradient(150deg, var(--on-1), var(--on-2));
+    color: var(--on-ink);
+}
+
+.scene__badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 2px 8px;
+    border-radius: var(--r-pill);
+    background: linear-gradient(150deg, var(--on-1), var(--on-2));
+    color: var(--on-ink);
+    font-size: 11px;
+    font-weight: 700;
+    vertical-align: 2px;
 }
 
 .scene__icon {
@@ -239,6 +264,7 @@
     background: var(--accent-soft);
     color: var(--accent);
     font-size: 18px;
+    transition: background 0.4s var(--ease-ios), color 0.4s var(--ease-ios);
 }
 
 .scene__text {

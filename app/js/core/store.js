@@ -87,6 +87,7 @@ export function createStore(initialHome, transport) {
         const s = states.get(key);
         if (!s || s.pending) return;
         s.pending = true;
+        s.target = !!on; // trạng thái đang chờ chuyển sang
         emit({ type: 'device', key });
 
         transport.send(key, !!on);

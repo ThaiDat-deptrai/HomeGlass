@@ -6,6 +6,8 @@
 // - Có thể lồng nhau: phần tử bên trong (vd: trang Tầng) được hỏi trước,
 //   nếu nó nhận cử chỉ thì phần tử bên ngoài (vd: đổi tab) bỏ qua.
 // - Sau khi vuốt sẽ chặn cú "click" đi kèm, để không bật nhầm đèn.
+// - Cập nhật vị trí theo nhịp màn hình (requestAnimationFrame): mỗi khung
+//   hình chỉ vẽ 1 lần dù ngón tay gửi bao nhiêu sự kiện -> mượt hơn.
 // =============================================================
 
 const LOCK_DISTANCE = 10; // px: di chuyển bao nhiêu thì quyết định hướng
@@ -30,6 +32,8 @@ export function onSwipe(el, handlers) {
     let lastT = 0;
     let velocity = 0;
     let swallowClick = false;
+    let frame = 0;
+    let latestDx = 0;
 
     el.addEventListener('pointerdown', e => {
         swallowClick = false;
@@ -67,11 +71,20 @@ export function onSwipe(el, handlers) {
         if (dt > 0) velocity = 0.75 * ((e.clientX - lastX) / dt) + 0.25 * velocity;
         lastX = e.clientX;
         lastT = e.timeStamp;
-        handlers.move?.(dx);
+
+        latestDx = dx;
+        if (!frame) {
+            frame = requestAnimationFrame(() => {
+                frame = 0;
+                if (mode === 'x') handlers.move?.(latestDx);
+            });
+        }
     });
 
     function finish(e, cancelled) {
         if (e.pointerId !== id) return;
+        cancelAnimationFrame(frame);
+        frame = 0;
         if (mode === 'x') {
             if (cancelled) handlers.cancel?.();
             else handlers.end?.(e.clientX - x0, velocity);
