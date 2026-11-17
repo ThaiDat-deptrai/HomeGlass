@@ -5,9 +5,10 @@
 // - Chỉ dùng cho cảm ứng; trên máy tính dùng chuột bấm như bình thường.
 // - Có thể lồng nhau: phần tử bên trong (vd: trang Tầng) được hỏi trước,
 //   nếu nó nhận cử chỉ thì phần tử bên ngoài (vd: đổi tab) bỏ qua.
+// - Khi đã nhận cử chỉ: theo dõi ngón tay trên TOÀN cửa sổ, nên dù trang
+//   bị nhấc ra lớp khác (lúc chuyển trang) vẫn biết khi nào nhấc tay.
+// - Cập nhật vị trí theo nhịp màn hình (requestAnimationFrame) cho mượt.
 // - Sau khi vuốt sẽ chặn cú "click" đi kèm, để không bật nhầm đèn.
-// - Cập nhật vị trí theo nhịp màn hình (requestAnimationFrame): mỗi khung
-//   hình chỉ vẽ 1 lần dù ngón tay gửi bao nhiêu sự kiện -> mượt hơn.
 // =============================================================
 
 const LOCK_DISTANCE = 10; // px: di chuyển bao nhiêu thì quyết định hướng
@@ -35,6 +36,47 @@ export function onSwipe(el, handlers) {
     let frame = 0;
     let latestDx = 0;
 
+    function track(e) {
+        const dt = e.timeStamp - lastT;
+        if (dt > 0) velocity = 0.75 * ((e.clientX - lastX) / dt) + 0.25 * velocity;
+        lastX = e.clientX;
+        lastT = e.timeStamp;
+        latestDx = e.clientX - x0;
+        if (!frame) {
+            frame = requestAnimationFrame(() => {
+                frame = 0;
+                if (mode === 'x') handlers.move?.(latestDx);
+            });
+        }
+    }
+
+    // ----- Sau khi đã nhận cử chỉ: nghe trên cả cửa sổ -----
+    const onWindowMove = e => {
+        if (e.pointerId === id && mode === 'x') track(e);
+    };
+    const onWindowUp = e => finish(e, false);
+    const onWindowCancel = e => finish(e, true);
+
+    function listenWindow(on) {
+        const fn = on ? 'addEventListener' : 'removeEventListener';
+        window[fn]('pointermove', onWindowMove, true);
+        window[fn]('pointerup', onWindowUp, true);
+        window[fn]('pointercancel', onWindowCancel, true);
+    }
+
+    function finish(e, cancelled) {
+        if (e.pointerId !== id) return;
+        cancelAnimationFrame(frame);
+        frame = 0;
+        const wasX = mode === 'x';
+        id = null;
+        mode = null;
+        listenWindow(false);
+        if (!wasX) return;
+        if (cancelled) handlers.cancel?.();
+        else handlers.end?.(e.clientX - x0, velocity);
+    }
+
     el.addEventListener('pointerdown', e => {
         swallowClick = false;
         if (e.pointerType === 'mouse' || e.target.closest(IGNORE)) return;
@@ -46,55 +88,34 @@ export function onSwipe(el, handlers) {
         mode = null;
     });
 
+    // ----- Trước khi nhận: quyết định có phải vuốt ngang không -----
     el.addEventListener('pointermove', e => {
-        if (e.pointerId !== id || mode === 'skip') return;
+        if (e.pointerId !== id) return;
+        if (mode === 'x') {
+            e.hgSwipeClaimed = true; // báo cho phần tử bên ngoài: cử chỉ này đã có chủ
+            return;
+        }
+        if (mode === 'skip') return;
         const dx = e.clientX - x0;
         const dy = e.clientY - y0;
-
-        if (mode === null) {
-            if (Math.abs(dx) < LOCK_DISTANCE && Math.abs(dy) < LOCK_DISTANCE) return;
-            const horizontal = Math.abs(dx) > Math.abs(dy) * 1.15;
-            // Phần tử bên trong đã nhận cử chỉ này rồi -> nhường
-            if (!horizontal || e.hgSwipeClaimed || handlers.start?.(dx) === false) {
-                mode = 'skip';
-                return;
-            }
-            mode = 'x';
-            e.hgSwipeClaimed = true;
-            swallowClick = true;
-            try { el.setPointerCapture(id); } catch (err) { /* bỏ qua */ }
-        } else {
-            e.hgSwipeClaimed = true;
+        if (Math.abs(dx) < LOCK_DISTANCE && Math.abs(dy) < LOCK_DISTANCE) return;
+        const horizontal = Math.abs(dx) > Math.abs(dy) * 1.15;
+        // Phần tử bên trong đã nhận cử chỉ này rồi -> nhường
+        if (!horizontal || e.hgSwipeClaimed || handlers.start?.(dx) === false) {
+            mode = 'skip';
+            return;
         }
-
-        const dt = e.timeStamp - lastT;
-        if (dt > 0) velocity = 0.75 * ((e.clientX - lastX) / dt) + 0.25 * velocity;
-        lastX = e.clientX;
-        lastT = e.timeStamp;
-
-        latestDx = dx;
-        if (!frame) {
-            frame = requestAnimationFrame(() => {
-                frame = 0;
-                if (mode === 'x') handlers.move?.(latestDx);
-            });
-        }
+        mode = 'x';
+        e.hgSwipeClaimed = true;
+        swallowClick = true;
+        try { el.setPointerCapture(id); } catch (err) { /* bỏ qua */ }
+        listenWindow(true);
+        track(e);
     });
 
-    function finish(e, cancelled) {
-        if (e.pointerId !== id) return;
-        cancelAnimationFrame(frame);
-        frame = 0;
-        if (mode === 'x') {
-            if (cancelled) handlers.cancel?.();
-            else handlers.end?.(e.clientX - x0, velocity);
-        }
-        id = null;
-        mode = null;
-    }
-
-    el.addEventListener('pointerup', e => finish(e, false));
-    el.addEventListener('pointercancel', e => finish(e, true));
+    // Nhấc tay khi chưa kịp nhận cử chỉ: chỉ cần quên đi
+    el.addEventListener('pointerup', e => { if (e.pointerId === id && mode !== 'x') { id = null; mode = null; } });
+    el.addEventListener('pointercancel', e => { if (e.pointerId === id && mode !== 'x') { id = null; mode = null; } });
 
     // Chặn cú click đi kèm sau khi vừa vuốt
     el.addEventListener('click', e => {

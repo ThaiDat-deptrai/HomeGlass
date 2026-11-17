@@ -2,32 +2,34 @@
 // ROUTER - đổi màn hình theo địa chỉ (#/, #/scenes, ...)
 // -------------------------------------------------------------
 // - Mỗi màn hình là 1 hàm: mount(root, ctx) -> trả về hàm dọn dẹp.
-// - Chuyển trang kiểu iOS: trang cũ trượt ra, trang mới trượt vào CÙNG LÚC.
-// - Vuốt ngang bằng ngón tay để sang tab bên cạnh (trang bám theo ngón tay).
+// - Chuyển trang kiểu iOS (xem ui/transition.js): trang mới trượt đè lên,
+//   trang dưới lùi chậm và tối dần; chuyển động theo LÒ XO có đà.
+// - Bấm tab hay vuốt đều dùng chung một hiệu ứng -> cảm giác nhất quán.
+// - Vuốt: trang bám ngón tay 1:1, thả tay thì lò xo nhận luôn vận tốc vuốt.
 // - Màn hình con (vd: Quản lý thiết bị) vuốt sang phải để quay lại.
 // - Máy tính: vệt sáng trên menu trái chạy theo con trỏ chuột.
-//
-// Bí quyết cho mượt trên điện thoại: trong lúc trang đang di chuyển,
-// tạm tắt hiệu ứng kính mờ (class "is-moving") vì làm mờ lại nền
-// ở mỗi khung hình rất nặng. Nền là màu loang nên mắt gần như không thấy khác.
 // =============================================================
 
 import { onSwipe, decide, rubber } from './swipe.js';
-import { reducedMotion, EASE_IOS, EASE_SPRING } from './motion.js';
-
-const EASE_OUT = 'cubic-bezier(0.4, 0, 1, 1)';
+import { reducedMotion, spring, EASE_SPRING } from './motion.js';
+import { beginTransition } from './transition.js';
 
 export function createRouter({ root, tabbar, routes, tabs, ctx }) {
-    let current = null;   // { path, view, cleanup }
-    let dragX = 0;        // trang đang bị kéo lệch bao nhiêu px (để trượt tiếp cho liền mạch)
+    let current = null; // { path, view, cleanup }
+    let moving = null;  // chuyển trang đang chạy: { t, path, view, cleanup, dir, anim }
     const links = tabbar.querySelector('.tabbar__links');
     const linkEls = [...links.querySelectorAll('a')];
     links.style.setProperty('--n', tabs.length);
+
+    const credit = document.createElement('footer');
+    credit.className = 'credit';
+    credit.innerHTML = `© ${new Date().getFullYear()} HomeGlass · Bản quyền thuộc về <strong>Thái Đạt</strong>`;
 
     const pathNow = () => {
         const p = location.hash.replace(/^#/, '') || '/';
         return routes[p] ? p : '/';
     };
+    const hashOf = path => (path === '/' ? '#/' : '#' + path);
 
     /** Vị trí trên thanh tab (màn hình con thì tính theo màn hình cha). */
     const tabIndex = path => tabs.indexOf(routes[path].parent || path);
@@ -39,82 +41,111 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
         return Math.sign(tabIndex(to) - tabIndex(from));
     }
 
-    function paintTabbar(path) {
+    function paintTabbar(path, progress = null) {
         const i = tabIndex(path);
-        links.style.setProperty('--i', i);
+        links.style.setProperty('--i', progress ?? i);
         linkEls.forEach(a => {
             if (a.dataset.path === tabs[i]) a.setAttribute('aria-current', 'page');
             else a.removeAttribute('aria-current');
         });
     }
 
-    function mountView(path) {
-        if (typeof current?.cleanup === 'function') current.cleanup();
+    function newView() {
         const view = document.createElement('div');
         view.className = 'view';
-        const credit = document.createElement('footer');
-        credit.className = 'credit';
-        credit.innerHTML = `© ${new Date().getFullYear()} HomeGlass · Bản quyền thuộc về <strong>Thái Đạt</strong>`;
+        return view;
+    }
+
+    /** Gắn thẳng (không hiệu ứng): lần đầu mở app, hoặc vẽ lại. */
+    function mountDirect(path) {
+        if (typeof current?.cleanup === 'function') current.cleanup();
+        const view = newView();
         root.replaceChildren(view, credit);
         current = { path, view, cleanup: routes[path].mount(view, ctx) };
         paintTabbar(path);
     }
 
-    /**
-     * Đổi trang. dir: +1 = sang phải (tab sau), -1 = sang trái, 0 = không hiệu ứng.
-     * Trang cũ được "tách" ra một lớp cố định để trượt đi, trong khi trang mới trượt vào.
-     */
-    function go(path, dir) {
-        const old = current?.view;
-        const animate = dir && old && !reducedMotion();
-        let ghost = null;
+    // ---------- Chuyển trang có hiệu ứng ----------
 
-        if (animate) {
-            old.style.transform = ''; // đo vị trí gốc (chưa tính phần đang bị kéo lệch)
-            const r = old.getBoundingClientRect();
-            ghost = old;
-            ghost.classList.add('view--ghost', 'is-moving');
-            Object.assign(ghost.style, { top: `${r.top}px`, left: `${r.left}px`, width: `${r.width}px` });
-            document.body.appendChild(ghost); // rời khỏi #app nên không bị xóa khi gắn trang mới
+    /** Tạo trang mới trên "tấm" chuyển cảnh. dir: +1 đi tới, -1 quay lại. */
+    function startMove(path, dir) {
+        const view = newView();
+        const t = beginTransition(current.view, view, dir);
+        const cleanup = routes[path].mount(view, ctx);
+        moving = { t, path, view, cleanup, dir, anim: null, p: 0 };
+        return moving;
+    }
+
+    function setProgress(p) {
+        moving.p = p;
+        moving.t.set(p);
+        const from = tabIndex(current.path);
+        const to = tabIndex(moving.path);
+        if (from !== to) {
+            tabbar.classList.add('is-dragging');
+            links.style.setProperty('--i', from + (to - from) * Math.max(0, Math.min(1, p)));
         }
+    }
 
-        mountView(path);
-        window.scrollTo(0, 0);
-        if (!animate) return;
+    /** Kết thúc: commit = sang trang mới; không thì ở lại trang cũ. */
+    function endMove(commit) {
+        const m = moving;
+        moving = null;
+        tabbar.classList.remove('is-dragging');
+        if (commit) {
+            if (typeof current.cleanup === 'function') current.cleanup();
+            root.replaceChildren(m.view, credit);
+            m.t.done();
+            current = { path: m.path, view: m.view, cleanup: m.cleanup };
+            window.scrollTo(0, 0);
+            paintTabbar(m.path);
+            if (location.hash !== hashOf(m.path)) location.hash = hashOf(m.path);
+        } else {
+            if (typeof m.cleanup === 'function') m.cleanup();
+            root.replaceChildren(current.view, credit);
+            m.t.done();
+            window.scrollTo(0, m.t.scrollY);
+            paintTabbar(current.path);
+        }
+    }
 
-        const distance = Math.min(root.clientWidth * 0.32, 180);
-        ghost.animate(
-            [
-                { transform: `translateX(${dragX}px)`, opacity: 1 },
-                { transform: `translateX(${-dir * distance}px)`, opacity: 0 }
-            ],
-            { duration: 240, easing: EASE_OUT, fill: 'forwards' }
-        ).onfinish = () => ghost.remove();
+    /** Thả lò xo từ vị trí hiện tại tới 1 (sang trang) hoặc 0 (quay về). */
+    function settle(commit, velocity = 0) {
+        const m = moving;
+        m.anim?.stop();
+        m.anim = spring({
+            from: m.p,
+            to: commit ? 1 : 0,
+            velocity,
+            onUpdate: setProgress,
+            onDone: () => { if (moving === m) endMove(commit); }
+        });
+    }
 
-        const view = current.view;
-        view.classList.add('is-moving');
-        const enter = view.animate(
-            [
-                { transform: `translateX(${dir * distance}px)`, opacity: 0 },
-                { transform: 'translateX(0)', opacity: 1 }
-            ],
-            { duration: 420, easing: EASE_IOS }
-        );
-        enter.onfinish = enter.oncancel = () => view.classList.remove('is-moving');
-        dragX = 0;
+    /** Đang chuyển dở mà lại bấm sang trang khác: cho chuyển cũ xong ngay. */
+    function finishMoving() {
+        if (!moving) return;
+        moving.anim?.stop();
+        setProgress(1);
+        endMove(true);
+    }
+
+    function go(path) {
+        finishMoving();
+        if (path === current.path) return;
+        const dir = direction(current.path, path);
+        if (!dir || reducedMotion()) return mountDirect(path);
+        startMove(path, dir);
+        settle(true, 0);
     }
 
     window.addEventListener('hashchange', () => {
         const path = pathNow();
-        if (path !== current?.path) go(path, direction(current?.path, path));
+        if (moving && moving.path === path) return; // địa chỉ đổi do chính chuyển cảnh này
+        if (path !== current?.path) go(path);
     });
 
-    // ---------- Vuốt để đổi tab (trang bên cạnh chạy theo ngón tay) ----------
-    // Lúc bắt đầu vuốt: dựng sẵn trang bên cạnh ở một lớp cố định, nằm sát mép màn hình.
-    // Kéo tay: cả 2 trang cùng dịch theo ngón tay (chỉ đổi transform -> rất nhẹ).
-    // Thả tay: đủ xa/đủ nhanh thì trượt hẳn sang trang mới, không thì trượt về.
-    let peek = null; // { path, view, cleanup, dir }
-
+    // ---------- Vuốt ngang ----------
     function targetOf(dx) {
         const route = routes[current.path];
         if (route.parent) return dx > 0 ? route.parent : null; // màn hình con: chỉ vuốt về
@@ -122,114 +153,64 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
         return tabs[i] || null;
     }
 
-    function mountPeek(path, dir) {
-        const cs = getComputedStyle(root);
-        const r = root.getBoundingClientRect();
-        const padL = parseFloat(cs.paddingLeft);
-        const padR = parseFloat(cs.paddingRight);
-        const view = document.createElement('div');
-        view.className = 'view view--peek is-moving';
-        Object.assign(view.style, {
-            top: `${parseFloat(cs.paddingTop)}px`,
-            left: `${r.left + padL}px`,
-            width: `${r.width - padL - padR}px`,
-            transform: `translateX(${dir * window.innerWidth}px)`
-        });
-        document.body.appendChild(view);
-        return { path, view, dir, cleanup: routes[path].mount(view, ctx) };
-    }
-
-    function dropPeek() {
-        if (!peek) return;
-        if (typeof peek.cleanup === 'function') peek.cleanup();
-        peek.view.remove();
-        peek = null;
-    }
-
-    /** Trang "ló" trở thành trang chính (không dựng lại, giữ nguyên những gì đã vẽ). */
-    function adoptPeek() {
-        const p = peek;
-        peek = null;
-        if (typeof current?.cleanup === 'function') current.cleanup();
-        p.view.getAnimations().forEach(a => a.cancel());
-        p.view.classList.remove('view--peek', 'is-moving');
-        p.view.removeAttribute('style');
-        const credit = root.querySelector('.credit');
-        root.replaceChildren(p.view, credit);
-        current = { path: p.path, view: p.view, cleanup: p.cleanup };
-        paintTabbar(p.path);
-        window.scrollTo(0, 0);
-        // Đổi địa chỉ cho khớp; hashchange thấy trùng trang hiện tại nên bỏ qua
-        const hash = p.path === '/' ? '#/' : '#' + p.path;
-        if (location.hash !== hash) location.hash = hash;
-    }
-
-    /** Đặt vị trí 2 trang theo độ lệch x của trang hiện tại. */
-    function placePages(x) {
-        current.view.style.transform = `translateX(${x}px)`;
-        if (peek) peek.view.style.transform = `translateX(${x + peek.dir * window.innerWidth}px)`;
-    }
-
-    function settleSwipe(commit, velocity) {
-        const W = window.innerWidth;
-        const v = current.view;
-        const from = dragX;
-        const to = commit ? -peek.dir * W : 0;
-        const distance = Math.abs(to - from);
-        // Hất nhanh -> trượt nhanh; kéo chậm -> trượt êm. Luôn trong 160–420 ms.
-        const speed = Math.max(Math.abs(velocity), 0.9);
-        const duration = reducedMotion() ? 0 : Math.round(Math.min(420, Math.max(160, distance / speed)));
-        const easing = commit ? 'cubic-bezier(0.2, 0.75, 0.25, 1)' : EASE_SPRING;
-        tabbar.classList.remove('is-dragging');
-        dragX = 0;
-
-        const anims = [v.animate([{ transform: `translateX(${from}px)` }, { transform: `translateX(${to}px)` }], { duration, easing, fill: 'forwards' })];
-        if (peek) {
-            const p0 = from + peek.dir * W;
-            const p1 = to + peek.dir * W;
-            anims.push(peek.view.animate([{ transform: `translateX(${p0}px)` }, { transform: `translateX(${p1}px)` }], { duration, easing, fill: 'forwards' }));
-        }
-        if (commit) paintTabbar(peek.path);
-        else paintTabbar(current.path);
-
-        anims[0].onfinish = () => {
-            if (commit) {
-                adoptPeek();
-            } else {
-                anims.forEach(a => a.cancel());
-                v.style.transform = '';
-                v.classList.remove('is-moving');
-                dropPeek();
-            }
-        };
-    }
+    let edgeDrag = false; // đang kéo ở mép (không còn trang): chỉ cho "nặng tay" rồi bật về
 
     onSwipe(root, {
         start(dx) {
-            if (routes[current.path].parent && dx < 0) return false;
-            dropPeek();
-            current.view.classList.add('is-moving');
+            if (moving) return false;
             const target = targetOf(dx);
-            if (target) peek = mountPeek(target, dx < 0 ? 1 : -1);
+            if (!target) {
+                if (routes[current.path].parent && dx < 0) return false;
+                edgeDrag = true;
+                return true;
+            }
+            edgeDrag = false;
+            startMove(target, direction(current.path, target));
             return true;
         },
         move(dx) {
             const W = window.innerWidth;
-            // Có trang bên cạnh: bám ngón tay 1:1. Ở mép (không còn trang): kéo nặng tay.
-            const towardPeek = peek && Math.sign(dx) === -peek.dir;
-            dragX = towardPeek ? dx : rubber(dx, W) * 0.35;
-            placePages(dragX);
-            if (towardPeek) {
-                tabbar.classList.add('is-dragging');
-                links.style.setProperty('--i', tabIndex(current.path) + peek.dir * Math.min(1, Math.abs(dx) / W));
+            if (edgeDrag) {
+                current.view.style.transform = `translateX(${rubber(dx, W) * 0.3}px)`;
+                return;
             }
+            // Đi tới: kéo sang trái (dx âm) mới tăng tiến độ; quay lại: kéo sang phải
+            setProgress(moving.dir > 0 ? -dx / W : dx / W);
         },
         end(dx, velocity) {
-            const step = decide(dx, velocity, window.innerWidth);
-            const commit = !!peek && step === peek.dir && Math.sign(dx) === -peek.dir;
-            settleSwipe(commit, velocity);
+            const W = window.innerWidth;
+            if (edgeDrag) {
+                edgeDrag = false;
+                const from = current.view.style.transform;
+                current.view.style.transform = '';
+                if (from && !reducedMotion()) {
+                    current.view.animate([{ transform: from }, { transform: 'translateX(0)' }], { duration: 560, easing: EASE_SPRING });
+                }
+                return;
+            }
+            const step = decide(dx, velocity, W);
+            const commit = step === moving.dir;
+            // Vận tốc ngón tay (px/ms) -> vận tốc tiến độ (phần/giây) cho lò xo
+            const v = (moving.dir > 0 ? -velocity : velocity) / W * 1000;
+            settle(commit, v);
         },
-        cancel: () => settleSwipe(false, 0)
+        cancel() {
+            if (edgeDrag) {
+                edgeDrag = false;
+                current.view.style.transform = '';
+                return;
+            }
+            if (moving) settle(false, 0);
+        }
+    });
+
+    // Chuyển app sang nền (khóa màn hình, đổi app) giữa lúc đang kéo: trả trang về chỗ cũ
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden && moving && !moving.anim) {
+            moving.anim = { stop() {} };
+            setProgress(0);
+            endMove(false);
+        }
     });
 
     // ---------- Máy tính: menu trái bám theo con trỏ chuột ----------
@@ -248,14 +229,15 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
         tabbar.style.setProperty('--my', `${e.clientY - r.top}px`);
     });
 
-    mountView(pathNow());
+    mountDirect(pathNow());
 
     return {
         current: () => current?.path,
         /** Vẽ lại màn hình hiện tại (vd: sau khi sửa cấu hình), giữ vị trí cuộn. */
         refresh() {
+            finishMoving();
             const y = window.scrollY;
-            mountView(current.path);
+            mountDirect(current.path);
             window.scrollTo(0, y);
         }
     };

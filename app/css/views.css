@@ -287,10 +287,6 @@
     animation: pulse 0.9s ease-in-out infinite;
 }
 
-.stairs__power:active {
-    transform: scale(0.92);
-    transition-duration: 0.08s;
-}
 
 /* Hình cầu thang: bậc 0 ở dưới cùng bên trái, đi chéo lên bên phải */
 .stairs__viz {
@@ -392,10 +388,6 @@
     color: #fff;
 }
 
-.effect-pick button:active {
-    transform: scale(0.94);
-    transition-duration: 0.08s;
-}
 
 .effect-pick button:disabled {
     opacity: 0.45;
@@ -1615,10 +1607,6 @@ a.row__value:hover {
     transition: transform 0.45s var(--ease-spring), box-shadow 0.25s;
 }
 
-.bg-pick:active {
-    transform: scale(0.96);
-    transition-duration: 0.08s;
-}
 
 .bg-pick[aria-pressed="true"] {
     box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--accent);

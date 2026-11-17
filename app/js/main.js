@@ -19,6 +19,7 @@ import { createScenes } from './core/scenes.js';
 import { createDemoTransport } from './transport/demo.js';
 import { createRouter } from './ui/router.js';
 import { toast } from './ui/toast.js';
+import { enablePress } from './ui/press.js';
 import { html, render } from './ui/dom.js';
 
 import * as homeView from './ui/views/home.js';
@@ -143,6 +144,8 @@ async function start() {
             '/manage': { mount: manageView.mount, parent: '/settings' }
         }
     });
+
+    enablePress(); // chạm vào khối nào cũng lún xuống + nảy lên như iPhone
 
     // Vẽ xong khung hình đầu tiên rồi mới bật hiệu ứng chuyển động
     requestAnimationFrame(() => requestAnimationFrame(() => document.documentElement.classList.add('is-ready')));

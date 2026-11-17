@@ -96,16 +96,7 @@
     color: var(--bad);
 }
 
-/* Nhấn: lún xuống nhanh, thả ra nảy nhẹ (giống iOS) */
-.btn-pill:active,
-.chip:active,
-.icon-btn:active,
-.scene__run:active,
-.orb:active,
-.ask button:active {
-    transform: scale(0.94);
-    transition-duration: 0.08s;
-}
+/* Hiệu ứng chạm (lún xuống, nảy lên) do ui/press.js lo - chạy cả trên điện thoại */
 
 /* ---------- Đèn báo kết nối ---------- */
 .status {
@@ -348,10 +339,6 @@
     transition: opacity 0.45s var(--ease-ios);
 }
 
-.tile:active {
-    transform: scale(0.95);
-    transition-duration: 0.1s;
-}
 
 .tile__icon {
     width: 40px;
@@ -464,12 +451,32 @@
     will-change: transform, opacity;
 }
 
-/* Trang cũ đang trượt đi khi chuyển trang / trang bên cạnh đang ló ra khi vuốt */
-.view--ghost,
-.view--peek {
-    position: fixed;
-    z-index: 40;
-    margin: 0;
+/* ---------- "Tấm" chuyển trang kiểu iOS (xem ui/transition.js) ----------
+   Mỗi trang nằm trên 1 tấm toàn màn hình có nền giống nền app,
+   nên trang trên che được trang dưới như các lớp giấy chồng nhau. */
+.bg.stage {
+    z-index: 41;
+    overflow: hidden;
+    will-change: transform;
+    transition: none;
+}
+
+.stage--top {
+    z-index: 42;
+    box-shadow: -18px 0 46px rgba(0, 0, 0, 0.28);
+}
+
+/* Lớp tối phủ lên trang bên dưới */
+.stage::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: #000;
+    opacity: var(--dim, 0);
+    pointer-events: none;
+}
+
+.stage__app {
     pointer-events: none;
 }
 
@@ -554,10 +561,6 @@
     font-size: 18px;
 }
 
-.tabbar a:active {
-    transform: scale(0.9);
-    transition-duration: 0.08s;
-}
 
 .tabbar a[aria-current="page"] {
     color: var(--accent);

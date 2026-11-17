@@ -16,10 +16,32 @@
           integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A=="
           crossorigin="anonymous" referrerpolicy="no-referrer" />
 
-    <link rel="stylesheet" href="css/tokens.css" />
-    <link rel="stylesheet" href="css/base.css" />
-    <link rel="stylesheet" href="css/components.css" />
-    <link rel="stylesheet" href="css/views.css" />
+    <!--
+        PHIÊN BẢN APP: tăng số này MỖI LẦN cập nhật code.
+        Mọi file CSS/JS được tải kèm "?v=<phiên bản>" nên điện thoại luôn lấy đủ bộ file mới,
+        không trộn file cũ trong bộ nhớ đệm với file mới (trộn lẫn là app không mở được).
+        Thêm file JS mới thì nhớ thêm tên vào danh sách JS_FILES bên dưới.
+    -->
+    <script>
+        var HG_VERSION = '0.5.2';
+        var JS_FILES = [
+            'main.js',
+            'core/config.js', 'core/homeData.js', 'core/store.js', 'core/settings.js',
+            'core/scenes.js', 'core/commands.js', 'core/stairs.js',
+            'transport/demo.js',
+            'ui/dom.js', 'ui/toast.js', 'ui/feedback.js', 'ui/icons.js', 'ui/router.js', 'ui/sheet.js',
+            'ui/motion.js', 'ui/swipe.js', 'ui/chart.js', 'ui/press.js', 'ui/transition.js',
+            'ui/views/home.js', 'ui/views/temperature.js', 'ui/views/scenes.js', 'ui/views/assistant.js',
+            'ui/views/settings.js', 'ui/views/manage.js', 'ui/views/stairs.js'
+        ];
+        ['tokens', 'base', 'components', 'views'].forEach(function (name) {
+            document.write('<link rel="stylesheet" href="css/' + name + '.css?v=' + HG_VERSION + '" />');
+        });
+        // Bản đồ module: mọi lệnh import './x.js' trong code đều tự trỏ sang './x.js?v=<phiên bản>'
+        var importMap = { imports: {} };
+        JS_FILES.forEach(function (f) { importMap.imports['./js/' + f] = './js/' + f + '?v=' + HG_VERSION; });
+        document.write('<script type="importmap">' + JSON.stringify(importMap) + '<\/script>');
+    </script>
 
     <!-- Áp chủ đề sáng/tối NGAY, trước khi vẽ trang, để không bị nháy màu -->
     <script>
@@ -54,6 +76,7 @@
     <div id="toasts" aria-live="polite"></div>
     <div id="sheet-root"></div>
 
-    <script type="module" src="js/main.js"></script>
+    <!-- Nạp qua import (không dùng src) để đi đúng bản đồ phiên bản ở trên -->
+    <script type="module">import './js/main.js';</script>
 </body>
 </html>
