@@ -11,6 +11,7 @@ import { openSheet } from '../sheet.js';
 import { DEVICE_TYPES, deviceIcon, roomIcon, typeLabel } from '../icons.js';
 import * as edit from '../../core/homeData.js';
 import { DRIVERS } from '../../core/stairs.js';
+import { SERVO_DEFAULTS } from '../../core/config.js';
 
 const FLOOR_KEY = 'hg.ui.manageFloor';
 
@@ -65,7 +66,7 @@ export function mount(root, ctx) {
                                         <span class="manage-item__icon"><i class="fa-solid ${deviceIcon(d)}"></i></span>
                                         <span class="manage-item__text">
                                             <strong>${d.name}</strong>
-                                            <small>${typeLabel(d)} · ${d.node === null ? 'Chưa gán ESP' : nodeText(home, d.node) + (d.type === 'stairs' ? ` · ${d.steps} bậc` : d.ch ? ` · Relay ${d.ch}` : ' · Chưa chọn relay')}</small>
+                                            <small>${typeLabel(d)}${d.actuator === 'servo' ? ' · Servo' : d.actuator === 'relay' ? ' · Relay' : ''} · ${d.node === null ? 'Chưa gán ESP' : nodeText(home, d.node) + (d.type === 'stairs' ? ` · ${d.steps} bậc` : d.ch ? ` · kênh ${d.ch}` : ' · chưa chọn kênh')}</small>
                                         </span>
                                         <i class="fa-solid fa-chevron-right manage-item__go"></i>
                                     </button>
@@ -126,6 +127,8 @@ export function mount(root, ctx) {
     // ---------- Form thiết bị ----------
     function deviceSheet(device, roomId) {
         let type = device?.type || 'light';
+        let actuator = device?.actuator || 'servo';
+        const angles = { ...SERVO_DEFAULTS, ...device?.servo };
         openSheet({
             title: device ? 'Sửa thiết bị' : 'Thêm thiết bị',
             body(el) {
@@ -142,11 +145,25 @@ export function mount(root, ctx) {
                     <label class="field"><span>Phòng</span>
                         <select id="dRoom">${roomOptions(device?.room.id || roomId)}</select>
                     </label>
+                    <div class="field" id="dActField"><span>Cách bật tắt</span>
+                        <div class="segmented segmented--block" id="dAct" role="tablist" style="--n:2; --i:${actuator === 'relay' ? 1 : 0}">
+                            <span class="segmented__thumb"></span>
+                            <button type="button" role="tab" data-act-type="servo" aria-selected="${actuator === 'servo'}"><i class="fa-solid fa-hand-pointer"></i>Servo gạt công tắc</button>
+                            <button type="button" role="tab" data-act-type="relay" aria-selected="${actuator === 'relay'}"><i class="fa-solid fa-plug"></i>Relay</button>
+                        </div>
+                    </div>
+                    <div class="field" id="dServoField"><span>Góc servo (độ)</span>
+                        <div class="angle-row">
+                            <label><small>Gạt BẬT</small><input type="number" id="dOn" min="0" max="180" value="${angles.on}" /></label>
+                            <label><small>Gạt TẮT</small><input type="number" id="dOff" min="0" max="180" value="${angles.off}" /></label>
+                            <label><small>Về nghỉ</small><input type="number" id="dRest" min="0" max="180" value="${angles.rest}" /></label>
+                        </div>
+                    </div>
                     <div class="field-row">
                         <label class="field"><span>Bộ điều khiển</span>
                             <select id="dNode">${nodeOptions(device ? (device.ownNode ?? 'inherit') : 'inherit', true)}</select>
                         </label>
-                        <label class="field field--small" id="dChField"><span>Relay số</span>
+                        <label class="field field--small" id="dChField"><span id="dChLabel">Relay số</span>
                             <input type="number" id="dCh" min="1" max="16" placeholder="–" value="${device?.ch ?? ''}" />
                         </label>
                         <label class="field field--small" id="dStepsField"><span>Số bậc</span>
@@ -163,15 +180,29 @@ export function mount(root, ctx) {
                 // Cầu thang: hỏi số bậc thay cho số relay
                 const paintType = () => {
                     const stairs = type === 'stairs';
+                    const servo = !stairs && actuator === 'servo';
                     $('#dChField', el).hidden = stairs;
+                    $('#dActField', el).hidden = stairs;
+                    $('#dServoField', el).hidden = !servo;
                     $('#dStepsField', el).hidden = !stairs;
                     $('#dDriverField', el).hidden = !stairs;
+                    $('#dChLabel', el).textContent = servo ? 'Kênh servo' : 'Relay số';
+                    $('#dAct', el).style.setProperty('--i', actuator === 'relay' ? 1 : 0);
+                    $$('#dAct button', el).forEach(b => b.setAttribute('aria-selected', String(b.dataset.actType === actuator)));
                     $('#dHint', el).textContent = stairs
                         ? 'Mỗi bậc 1 dải LED + 1 module D4184, nối vào mạch mở rộng MCP23017 (tối đa 16 bậc / 1 mạch).'
-                        : '"Theo phòng": dùng ESP đã gán cho phòng. Relay số = chân relay trên ESP nối tới thiết bị này.';
+                        : servo
+                            ? 'Servo SG90 gạt công tắc tường sang BẬT/TẮT rồi về góc nghỉ (tay người vẫn bấm được). Không đụng điện 220V. Kênh servo = chân PWM / kênh mạch PCA9685 trên ESP.'
+                            : '"Theo phòng": dùng ESP đã gán cho phòng. Relay số = chân relay trên ESP nối tới thiết bị này.';
                 };
                 paintType();
                 el.addEventListener('click', e => {
+                    const act = e.target.closest('#dAct button');
+                    if (act) {
+                        actuator = act.dataset.actType;
+                        paintType();
+                        return;
+                    }
                     const btn = e.target.closest('#dType button');
                     if (!btn) return;
                     type = btn.dataset.type;
@@ -205,11 +236,20 @@ export function mount(root, ctx) {
                     if (type === 'stairs' && !(Number.isInteger(steps) && steps >= 2 && steps <= 32)) {
                         return toast('Số bậc phải từ 2 đến 32', 'error');
                     }
+                    let servo = null;
+                    if (type !== 'stairs' && actuator === 'servo') {
+                        servo = { on: Number($('#dOn').value), off: Number($('#dOff').value), rest: Number($('#dRest').value) };
+                        if (Object.values(servo).some(a => !Number.isInteger(a) || a < 0 || a > 180)) {
+                            return toast('Góc servo phải là số từ 0 đến 180', 'error');
+                        }
+                    }
                     const fields = {
                         name, type, ch,
                         node: node === undefined ? null : node,
                         steps: type === 'stairs' ? steps : null,
-                        driver: type === 'stairs' ? $('#dDriver').value : null
+                        driver: type === 'stairs' ? $('#dDriver').value : null,
+                        actuator: type === 'stairs' ? null : actuator,
+                        servo
                     };
                     const targetRoom = $('#dRoom').value;
 

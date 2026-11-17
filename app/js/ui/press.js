@@ -17,7 +17,7 @@ export const PRESSABLE = [
     '.stairs__power', '.effect-pick button', '.type-pick button', '.icon-pick button',
     '.tabbar a', '.bg-pick', '.swatch', '.manage-item', '.manage-add', '.legend__item',
     '.orb', '.ask button', '.row--link', '.segmented button', '.tri button', '.switch',
-    '.sheet__close', '.room__empty'
+    '.sheet__close', '.room__empty', '.chip-pick button', '.day-pick button', '.sched__main'
 ].join(', ');
 
 // Khối to lún ít, nút nhỏ lún nhiều hơn (giống iOS)

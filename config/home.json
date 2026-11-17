@@ -1,5 +1,5 @@
 {
-  "_ghiChu": "File khai báo CẢ NHÀ. App và ESP đều đọc từ đây. Có thể sửa ngay trong app (Cài đặt -> Phòng & thiết bị) rồi tải file về. 'nodes' = các bộ điều khiển ESP (0 = trung tâm). 'node' và 'ch' = null nghĩa là CHƯA CHỐT. Giải thích: README.md, mục 'Cấu hình nhà'.",
+  "_ghiChu": "File khai báo CẢ NHÀ. App và ESP đều đọc từ đây. Có thể sửa ngay trong app (Cài đặt -> Phòng & thiết bị) rồi tải file về. 'nodes' = các bộ điều khiển ESP (0 = trung tâm). 'actuator' = cách bật tắt: 'servo' (SG90 gạt công tắc tường, không đụng 220V) hoặc 'relay'. 'node' và 'ch' = null nghĩa là CHƯA CHỐT. Giải thích: README.md, mục 'Cấu hình nhà'.",
   "home": "Nhà của tôi",
   "nodes": [
     { "id": 0, "name": "Trung tâm", "board": "ESP32-S3" },
@@ -20,7 +20,7 @@
           "name": "Sân",
           "node": null,
           "devices": [
-            { "id": "den-san", "name": "Đèn sân", "type": "light", "ch": null }
+            { "id": "den-san", "name": "Đèn sân", "type": "light", "actuator": "servo", "ch": null }
           ]
         },
         {
@@ -28,7 +28,7 @@
           "name": "Vườn",
           "node": null,
           "devices": [
-            { "id": "den-vuon", "name": "Đèn vườn", "type": "light", "ch": null }
+            { "id": "den-vuon", "name": "Đèn vườn", "type": "light", "actuator": "servo", "ch": null }
           ]
         },
         {
@@ -36,8 +36,8 @@
           "name": "Phòng khách",
           "node": null,
           "devices": [
-            { "id": "den-to",  "name": "Đèn to",  "type": "light", "ch": null },
-            { "id": "den-nho", "name": "Đèn nhỏ", "type": "light", "ch": null }
+            { "id": "den-to",  "name": "Đèn to",  "type": "light", "actuator": "servo", "ch": null },
+            { "id": "den-nho", "name": "Đèn nhỏ", "type": "light", "actuator": "servo", "ch": null }
           ]
         },
         {
@@ -45,7 +45,7 @@
           "name": "Bếp",
           "node": null,
           "devices": [
-            { "id": "den-bep", "name": "Đèn bếp", "type": "light", "ch": null }
+            { "id": "den-bep", "name": "Đèn bếp", "type": "light", "actuator": "servo", "ch": null }
           ]
         },
         {
@@ -53,7 +53,7 @@
           "name": "Phòng ngủ",
           "node": null,
           "devices": [
-            { "id": "den", "name": "Đèn", "type": "light", "ch": null }
+            { "id": "den", "name": "Đèn", "type": "light", "actuator": "servo", "ch": null }
           ]
         },
         {
@@ -61,7 +61,7 @@
           "name": "Phòng tắm 1",
           "node": null,
           "devices": [
-            { "id": "den-phong-tam", "name": "Đèn phòng tắm", "type": "light", "ch": null }
+            { "id": "den-phong-tam", "name": "Đèn phòng tắm", "type": "light", "actuator": "servo", "ch": null }
           ]
         },
         {
@@ -69,8 +69,8 @@
           "name": "Phòng tắm 2",
           "node": null,
           "devices": [
-            { "id": "den-toilet",    "name": "Đèn toilet",    "type": "light", "ch": null },
-            { "id": "den-phong-tam", "name": "Đèn phòng tắm", "type": "light", "ch": null }
+            { "id": "den-toilet",    "name": "Đèn toilet",    "type": "light", "actuator": "servo", "ch": null },
+            { "id": "den-phong-tam", "name": "Đèn phòng tắm", "type": "light", "actuator": "servo", "ch": null }
           ]
         }
       ]
@@ -99,7 +99,7 @@
           "name": "Phòng khách",
           "node": null,
           "devices": [
-            { "id": "den", "name": "Đèn", "type": "light", "ch": null }
+            { "id": "den", "name": "Đèn", "type": "light", "actuator": "servo", "ch": null }
           ]
         },
         {
@@ -107,8 +107,8 @@
           "name": "Phòng thờ",
           "node": null,
           "devices": [
-            { "id": "den-tho", "name": "Đèn thờ", "type": "light", "ch": null },
-            { "id": "den-ngu", "name": "Đèn ngủ", "type": "light", "ch": null }
+            { "id": "den-tho", "name": "Đèn thờ", "type": "light", "actuator": "servo", "ch": null },
+            { "id": "den-ngu", "name": "Đèn ngủ", "type": "light", "actuator": "servo", "ch": null }
           ]
         },
         {
@@ -116,8 +116,8 @@
           "name": "Phòng ngủ 1",
           "node": null,
           "devices": [
-            { "id": "den",           "name": "Đèn",           "type": "light", "ch": null },
-            { "id": "den-phong-tho", "name": "Đèn phòng thờ", "type": "light", "ch": null }
+            { "id": "den",           "name": "Đèn",           "type": "light", "actuator": "servo", "ch": null },
+            { "id": "den-phong-tho", "name": "Đèn phòng thờ", "type": "light", "actuator": "servo", "ch": null }
           ]
         },
         {
@@ -125,10 +125,10 @@
           "name": "Phòng ngủ 2",
           "node": null,
           "devices": [
-            { "id": "den-ngu",    "name": "Đèn ngủ",    "type": "light", "ch": null },
-            { "id": "den-tu",     "name": "Đèn tủ",     "type": "light", "ch": null },
-            { "id": "den-giuong", "name": "Đèn giường", "type": "light", "ch": null },
-            { "id": "den-cay",    "name": "Đèn cây",    "type": "light", "ch": null }
+            { "id": "den-ngu",    "name": "Đèn ngủ",    "type": "light", "actuator": "servo", "ch": null },
+            { "id": "den-tu",     "name": "Đèn tủ",     "type": "light", "actuator": "relay", "ch": null },
+            { "id": "den-giuong", "name": "Đèn giường", "type": "light", "actuator": "relay", "ch": null },
+            { "id": "den-cay",    "name": "Đèn cây",    "type": "light", "actuator": "relay", "ch": null }
           ]
         }
       ]

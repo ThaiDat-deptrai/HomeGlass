@@ -60,26 +60,10 @@ export function inWindow(date, from, to) {
     return a <= b ? n >= a && n < b : n >= a || n < b;
 }
 
-/**
- * Giờ mặt trời lặn (phút trong ngày, giờ Việt Nam) - công thức NOAA rút gọn.
- * ESP tính y hệt, không cần Internet. Mặc định toạ độ giữa Việt Nam;
- * thêm "location": { "lat": ..., "lon": ... } vào home.json để chính xác hơn.
- */
-export function sunsetMinutes(date, { lat = 16, lon = 106 } = {}, tz = 7) {
-    const rad = Math.PI / 180;
-    const start = new Date(date.getFullYear(), 0, 0);
-    const day = Math.floor((date - start) / 864e5);
-    const g = (2 * Math.PI / 365) * (day - 1);
-    const eqtime = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g)
-        - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
-    const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g)
-        + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
-    const ha = Math.acos(Math.cos(90.833 * rad) / (Math.cos(lat * rad) * Math.cos(decl))
-        - Math.tan(lat * rad) * Math.tan(decl)) / rad;
-    return Math.round(720 - 4 * (lon - ha) - eqtime + tz * 60);
-}
+// Giờ mặt trời: dùng chung với lịch hẹn của kịch bản (xem core/sun.js)
+import { sunsetMinutes, formatMinutes } from './sun.js';
 
-export const formatMinutes = m => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+export { sunsetMinutes, formatMinutes };
 
 /** Đang trong giờ ban đêm? */
 export const isNight = (a, date = new Date()) => a.night && inWindow(date, a.nightFrom, a.nightTo);

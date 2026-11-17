@@ -79,6 +79,10 @@ function splitKey(key) {
 function compactDevice(d) {
     const out = { id: d.id, name: d.name, type: d.type || 'light', ch: d.ch ?? null };
     if (d.node !== null && d.node !== undefined) out.node = d.node;
+    if (out.type !== 'stairs') {
+        out.actuator = d.actuator === 'servo' ? 'servo' : 'relay';
+        if (out.actuator === 'servo' && d.servo) out.servo = { on: d.servo.on, off: d.servo.off, rest: d.servo.rest };
+    }
     if (out.type === 'stairs') {
         out.steps = d.steps ?? 15;
         out.driver = d.driver ?? 'mcp23017';
@@ -122,17 +126,17 @@ export function removeRoom(data, roomId) {
 
 // ---------- Thiết bị ----------
 
-export function addDevice(data, roomId, { name, type = 'light', node = null, ch = null, steps = null, driver = null }) {
+export function addDevice(data, roomId, { name, type = 'light', node = null, ch = null, steps = null, driver = null, actuator = 'servo', servo = null }) {
     const next = clone(data);
     const room = findRoom(next, roomId);
     room.devices = room.devices || [];
     const id = uniqueId(slugify(name), new Set(room.devices.map(d => d.id)));
-    room.devices.push(compactDevice({ id, name: name.trim(), type, node, ch, steps, driver }));
+    room.devices.push(compactDevice({ id, name: name.trim(), type, node, ch, steps, driver, actuator, servo }));
     return { data: next, key: `${roomId}/${id}` };
 }
 
 /** Sửa thiết bị; nếu đổi phòng thì key đổi theo -> trả về key mới. */
-export function updateDevice(data, key, { name, type, roomId, node, ch, steps, driver }) {
+export function updateDevice(data, key, { name, type, roomId, node, ch, steps, driver, actuator, servo }) {
     const next = clone(data);
     const [oldRoomId, deviceId] = splitKey(key);
     const oldRoom = findRoom(next, oldRoomId);
@@ -144,6 +148,8 @@ export function updateDevice(data, key, { name, type, roomId, node, ch, steps, d
     if (ch !== undefined) device.ch = ch;
     if (steps !== undefined && steps !== null) device.steps = steps;
     if (driver !== undefined && driver !== null) device.driver = driver;
+    if (actuator !== undefined && actuator !== null) device.actuator = actuator;
+    if (servo !== undefined && servo !== null) device.servo = servo;
 
     let newKey = key;
     if (roomId && roomId !== oldRoomId) {

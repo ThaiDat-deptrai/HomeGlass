@@ -8,6 +8,12 @@
 
 const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+/**
+ * Góc servo mặc định (độ): gạt công tắc sang BẬT, sang TẮT, rồi về góc NGHỈ
+ * (về nghỉ để tay người vẫn bấm công tắc được, servo không bị ghì).
+ */
+export const SERVO_DEFAULTS = { on: 45, off: 135, rest: 90 };
+
 /** Đèn cầu thang cũng tính là "đèn" (đếm số đèn bật, kịch bản tắt hết đèn...). */
 export const isLight = device => device.type === 'light' || device.type === 'stairs';
 
@@ -82,6 +88,9 @@ export function parseHome(data) {
                     ch: d.ch ?? null,
                     steps: d.steps ?? null,     // cầu thang: số bậc
                     driver: d.driver ?? null,   // cầu thang: mạch điều khiển (mcp23017 | pca9685)
+                    // Cách bật tắt: 'servo' = SG90 gạt công tắc tường (không đụng 220V), 'relay' = rơ-le
+                    actuator: d.type === 'stairs' ? null : (d.actuator === 'relay' ? 'relay' : d.actuator === 'servo' ? 'servo' : 'relay'),
+                    servo: d.actuator === 'servo' ? { ...SERVO_DEFAULTS, ...d.servo } : null,
                     ownNode,                   // ESP ghi riêng cho thiết bị (nếu có)
                     node: ownNode ?? room.node, // ESP thực sự điều khiển
                     room,

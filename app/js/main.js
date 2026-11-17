@@ -16,10 +16,12 @@ import { fetchHomeFile, readLocal, writeLocal, clearLocal, downloadJson } from '
 import { createStore } from './core/store.js';
 import { createSettings } from './core/settings.js';
 import { createScenes } from './core/scenes.js';
+import { createSchedules, startDemoRunner } from './core/schedules.js';
 import { createDemoTransport } from './transport/demo.js';
 import { createRouter } from './ui/router.js';
 import { toast } from './ui/toast.js';
 import { enablePress } from './ui/press.js';
+import { enableWheelSwitch } from './ui/wheel.js';
 import { html, render } from './ui/dom.js';
 
 import * as homeView from './ui/views/home.js';
@@ -78,6 +80,18 @@ async function start() {
     const store = createStore(home, transport);
     const scenes = createScenes(home);
     scenes.watch(store); // kịch bản đang bật sẽ tự "tắt" khi thiết bị bị đổi khác đi
+    const schedules = createSchedules(home.raw.location);
+
+    // Bản demo: app tự chạy lịch hẹn khi đang mở (bản thật: ESP trung tâm chạy)
+    if (transport.name === 'demo') {
+        startDemoRunner(schedules, (sceneId) => {
+            const scene = scenes.get(sceneId);
+            if (!scene) return;
+            store.setMany(scene.actions);
+            scenes.activate(scene.id);
+            toast(`⏰ Đã chạy "${scene.name}" theo lịch hẹn`, 'success', 4000);
+        });
+    }
 
     // Đang gõ phím trên điện thoại: ẩn thanh dưới để bàn phím không đẩy nó che mất ô nhập
     const TYPING = 'input[type="text"], input[type="number"], input[type="search"], textarea, select';
@@ -107,6 +121,7 @@ async function start() {
         home,
         store,
         scenes,
+        schedules,
         settings,
         toast,
         homeSource: () => source,
@@ -146,6 +161,7 @@ async function start() {
     });
 
     enablePress(); // chạm vào khối nào cũng lún xuống + nảy lên như iPhone
+    enableWheelSwitch(); // máy tính: lăn chuột trên thanh chọn / menu trái để đổi mục
 
     // Vẽ xong khung hình đầu tiên rồi mới bật hiệu ứng chuyển động
     requestAnimationFrame(() => requestAnimationFrame(() => document.documentElement.classList.add('is-ready')));

@@ -117,13 +117,14 @@ export function createDemoTransport(initialHome) {
         },
 
         send(key, on) {
-            // Giả lập độ trễ mạng + relay đóng: 150–400 ms
+            // Giả lập độ trễ: relay đóng ngay (150–400 ms), servo phải quay gạt công tắc (500–800 ms)
+            const servo = home.devices.get(key)?.actuator === 'servo';
             setTimeout(() => {
                 setState(key, on);
                 // Cầu thang bật bằng tay + có hẹn giờ -> tự tắt
                 const a = attrs[key];
                 if (a) scheduleOff(key, on && a.timerMin ? a.timerMin * 60000 : 0);
-            }, 150 + Math.random() * 250);
+            }, servo ? 500 + Math.random() * 300 : 150 + Math.random() * 250);
         },
 
         configure(key, patch) {
