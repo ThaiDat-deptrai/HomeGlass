@@ -1,0 +1,106 @@
+/* =============================================================
+   BASE - reset, chữ, nền, khung trang
+   ============================================================= */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body {
+    min-height: 100dvh;
+    font-family: var(--font);
+    color: var(--text);
+    background: var(--bg-base);
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+}
+
+/* Nền: 3 đốm màu loang, đứng yên khi cuộn */
+.bg {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background:
+        radial-gradient(60% 45% at 8% 0%, var(--blob-1), transparent 70%),
+        radial-gradient(50% 40% at 100% 18%, var(--blob-2), transparent 70%),
+        radial-gradient(70% 50% at 50% 105%, var(--blob-3), transparent 70%),
+        var(--bg-base);
+}
+
+/* Nền là ảnh người dùng chọn: phủ thêm 1 lớp mờ để chữ dễ đọc */
+.bg.bg--image {
+    background:
+        linear-gradient(var(--bg-overlay), var(--bg-overlay)),
+        var(--bg-image) center / cover no-repeat,
+        var(--bg-base);
+}
+
+button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    cursor: pointer;
+}
+
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* Khung nội dung: điện thoại 1 cột, máy tính rộng hơn */
+.app {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: max(16px, env(safe-area-inset-top)) 16px calc(112px + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 900px) {
+    .app {
+        max-width: 1080px;
+        padding-left: 32px;
+        padding-right: 32px;
+    }
+}
+
+.view {
+    animation: fade-up 0.35s var(--ease);
+}
+
+@keyframes fade-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(0.92); }
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}

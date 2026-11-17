@@ -29,7 +29,7 @@ ESP32-C3   ESP32-C3   ESP32-C3 ...   (mỗi phòng 1 con)
 | Thư mục | Chứa gì |
 |---|---|
 | `config/home.json` | **Khai báo cả nhà**: tầng → phòng → thiết bị. Sửa ở đây là app và ESP tự hiểu |
-| `app/` | App điện thoại (web cài được lên màn hình chính) |
+| `app/` | App điện thoại (web cài được lên màn hình chính). Cấu trúc code: xem [`docs/kien-truc.md`](docs/kien-truc.md) |
 | `firmware/master/` | Code cho ESP32-S3 (trung tâm) |
 | `firmware/node/` | Code cho ESP32-C3 (**dùng chung** cho mọi phòng, chỉ đổi số node) |
 | `docs/` | Hướng dẫn, sơ đồ đi dây |
@@ -64,8 +64,9 @@ Mỗi phòng có `node`: số thứ tự con ESP32-C3 điều khiển phòng đ�
 
 | Giai đoạn | Việc | Trạng thái |
 |---|---|---|
-| 0. Khảo sát | Liệt kê tầng, phòng, thiết bị, linh kiện | ⏳ Đang làm |
-| 1. Nền móng | Master + 1 node mẫu + app cơ bản + đăng nhập | ⬜ |
+| 0. Khảo sát | Liệt kê tầng, phòng, thiết bị, linh kiện | ✅ Xong danh sách nhà |
+| 1a. Giao diện | 4 màn hình chạy bằng dữ liệu giả lập (demo) | ✅ Bản 0.1 |
+| 1b. Nền móng | Kết nối MQTT thật + đăng nhập + Master + 1 node mẫu | ⏳ Tiếp theo |
 | 2. Nhân rộng | Lắp từng phòng: tầng 2 trước, rồi tầng 1 | ⬜ |
 | 3. Nâng cao | Kịch bản, hẹn giờ, cảm biến, giọng nói, chạy khi mất mạng | ⬜ |
 

@@ -1,0 +1,103 @@
+/* =============================================================
+   TOKENS - "bảng màu & kích thước" dùng chung cho toàn app.
+   Muốn đổi màu/bo góc cả app thì sửa ở ĐÂY, không sửa rải rác.
+   ============================================================= */
+:root {
+    --font: 'Be Vietnam Pro', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+    /* Màu nhấn (người dùng đổi được trong Cài đặt) */
+    --accent: #2c6bff;
+    --accent-soft: color-mix(in srgb, var(--accent) 15%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 40%, transparent);
+
+    /* Màu "đèn đang sáng" - vàng cam ấm */
+    --on-1: #ffd896;
+    --on-2: #ffac5a;
+    --on-ink: #4a2a00;
+    --on-glow: rgba(255, 160, 70, 0.42);
+
+    /* Màu trạng thái */
+    --ok: #22c55e;
+    --warn: #f5a524;
+    --bad: #ef4444;
+
+    /* Bo góc */
+    --r-xl: 30px;
+    --r-lg: 22px;
+    --r-md: 16px;
+    --r-sm: 12px;
+    --r-pill: 999px;
+
+    /* Khoảng cách */
+    --s-1: 4px;
+    --s-2: 8px;
+    --s-3: 12px;
+    --s-4: 16px;
+    --s-5: 20px;
+    --s-6: 24px;
+    --s-8: 32px;
+
+    --blur: 20px;
+    --glass-strength: 0.55; /* 0 = kính rất trong, 1 = kính đục (chỉnh trong Cài đặt) */
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    /* ---------- Chủ đề SÁNG ---------- */
+    color-scheme: light;
+    --bg-base: #e7eefc;
+    --bg-overlay: rgba(255, 255, 255, 0.28);
+    --blob-1: #b7cdff;
+    --blob-2: #e4d6ff;
+    --blob-3: #c4eeff;
+    --glass: rgba(255, 255, 255, calc(0.25 + 0.6 * var(--glass-strength)));
+    --glass-2: rgba(255, 255, 255, calc(0.5 + 0.55 * var(--glass-strength)));
+    --glass-border: rgba(255, 255, 255, 0.78);
+    --line: rgba(20, 35, 70, 0.08);
+    --text: #14203a;
+    --text-2: #4a5775;
+    --text-3: #7d8aa8;
+    --shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 12px 32px rgba(35, 60, 120, 0.1);
+    --icon-bg: rgba(20, 35, 70, 0.06);
+    --toast-bg: rgba(20, 28, 50, 0.9);
+}
+
+/* ---------- Chủ đề TỐI (chọn tay) ---------- */
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg-base: #0a0f20;
+    --bg-overlay: rgba(5, 8, 20, 0.5);
+    --blob-1: #1c3683;
+    --blob-2: #3a1c6b;
+    --blob-3: #0e4a5a;
+    --glass: rgba(255, 255, 255, calc(0.02 + 0.09 * var(--glass-strength)));
+    --glass-2: rgba(255, 255, 255, calc(0.05 + 0.13 * var(--glass-strength)));
+    --glass-border: rgba(255, 255, 255, 0.12);
+    --line: rgba(255, 255, 255, 0.08);
+    --text: #eef2ff;
+    --text-2: #aab4d0;
+    --text-3: #707b9a;
+    --shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 32px rgba(0, 0, 0, 0.35);
+    --icon-bg: rgba(255, 255, 255, 0.08);
+    --toast-bg: rgba(30, 38, 64, 0.95);
+}
+
+/* ---------- Chủ đề TỐI (tự động theo máy) ---------- */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg-base: #0a0f20;
+        --bg-overlay: rgba(5, 8, 20, 0.5);
+        --blob-1: #1c3683;
+        --blob-2: #3a1c6b;
+        --blob-3: #0e4a5a;
+        --glass: rgba(255, 255, 255, calc(0.02 + 0.09 * var(--glass-strength)));
+        --glass-2: rgba(255, 255, 255, calc(0.05 + 0.13 * var(--glass-strength)));
+        --glass-border: rgba(255, 255, 255, 0.12);
+        --line: rgba(255, 255, 255, 0.08);
+        --text: #eef2ff;
+        --text-2: #aab4d0;
+        --text-3: #707b9a;
+        --shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 32px rgba(0, 0, 0, 0.35);
+        --icon-bg: rgba(255, 255, 255, 0.08);
+        --toast-bg: rgba(30, 38, 64, 0.95);
+    }
+}
