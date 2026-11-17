@@ -1,12 +1,18 @@
 // =============================================================
 // MÀN HÌNH NHÀ - tổng quan, kịch bản nhanh, tầng -> phòng -> thiết bị
+// -------------------------------------------------------------
+// Các tầng nằm cạnh nhau như trang sách: vuốt ngang hoặc bấm
+// "Tầng 1 | Tầng 2" để lật. Trên máy tính, phòng xếp thành thẻ nhiều cột.
 // =============================================================
 
 import { html, render, $, $$ } from '../dom.js';
 import { deviceIcon, roomIcon } from '../icons.js';
 import { tap } from '../feedback.js';
+import { pop, rollNumber, smoothHeight, reducedMotion } from '../motion.js';
+import { onSwipe, decide, rubber } from '../swipe.js';
 
 const FLOOR_KEY = 'hg.ui.floor';
+const PAGE_GAP = 32; // khớp với .pager__track { gap }
 
 const STATUS_TEXT = {
     demo: 'Bản demo',
@@ -34,9 +40,37 @@ function statusLabel(state) {
     return state.on ? 'Đang bật' : 'Đang tắt';
 }
 
+const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+function roomHtml(room) {
+    return html`
+        <section class="room" data-room="${room.id}">
+            <header class="room__head">
+                <span class="room__icon"><i class="fa-solid ${roomIcon(room)}"></i></span>
+                <div class="room__title">
+                    <h2>${room.name}</h2>
+                    <span class="room__meta"></span>
+                </div>
+                ${room.devices.length > 1 ? html`<button class="btn-pill room__all"></button>` : ''}
+            </header>
+            ${room.devices.length
+                ? html`<div class="tiles">
+                    ${room.devices.map(d => html`
+                        <button class="tile" data-key="${d.key}" data-type="${d.type}">
+                            <span class="tile__icon"><i class="fa-solid ${deviceIcon(d)}"></i></span>
+                            <span class="tile__name">${d.name}</span>
+                            <span class="tile__status"></span>
+                        </button>`)}
+                  </div>`
+                : html`<a class="room__empty" href="#/manage"><i class="fa-solid fa-plus"></i>Thêm thiết bị cho phòng này</a>`}
+        </section>`;
+}
+
 export function mount(root, { home, store, scenes, settings, toast }) {
     const lights = home.allDevices.filter(d => d.type === 'light');
-    let floorIndex = Math.min(Number(sessionStorage.getItem(FLOOR_KEY)) || 0, home.floors.length - 1);
+    const others = home.allDevices.filter(d => d.type !== 'light');
+    const floors = home.floors;
+    let floorIndex = clamp(Number(sessionStorage.getItem(FLOOR_KEY)) || 0, 0, floors.length - 1);
 
     render(root, html`
         <header class="home-head">
@@ -47,27 +81,47 @@ export function mount(root, { home, store, scenes, settings, toast }) {
             <div class="status" id="status"><span class="status__dot"></span><span id="statusText"></span></div>
         </header>
 
-        <section class="hero card" id="hero">
-            <div class="hero__glow"></div>
-            <div class="hero__count" id="heroCount">0</div>
-            <div class="hero__text">
-                <div class="hero__label" id="heroLabel"></div>
-                <div class="hero__sub" id="heroSub"></div>
-            </div>
-            <button class="btn-pill" id="allOff"><i class="fa-solid fa-power-off"></i>Tắt tất cả</button>
-        </section>
+        <div class="home-top">
+            <section class="hero card" id="hero">
+                <div class="hero__glow"></div>
+                <div class="hero__count"><span id="heroCount">0</span></div>
+                <div class="hero__text">
+                    <div class="hero__label" id="heroLabel"></div>
+                    <div class="hero__sub" id="heroSub"></div>
+                </div>
+                <button class="btn-pill" id="allOff"><i class="fa-solid fa-power-off"></i>Tắt tất cả</button>
+            </section>
 
-        <div class="chips" id="sceneChips"></div>
-
-        <div class="segmented segmented--block" id="floors" role="tablist" style="--n:${home.floors.length}">
-            <span class="segmented__thumb"></span>
-            ${home.floors.map((f, i) => html`<button role="tab" data-index="${i}">${f.name}</button>`)}
+            <section class="quick">
+                <h2 class="section-title quick__title">Kịch bản nhanh</h2>
+                <div class="chips" id="sceneChips"></div>
+            </section>
         </div>
 
-        <div id="rooms"></div>
+        <div class="floor-bar" ${floors.length < 2 ? 'hidden' : ''}>
+            <div class="segmented segmented--block" id="floors" role="tablist" style="--n:${floors.length}; --i:${floorIndex}">
+                <span class="segmented__thumb"></span>
+                ${floors.map((f, i) => html`<button role="tab" data-index="${i}">${f.name}</button>`)}
+            </div>
+        </div>
+
+        <div class="pager" id="pager">
+            <div class="pager__track" id="track">
+                ${floors.map((f, i) => html`
+                    <div class="pager__page" data-index="${i}" role="tabpanel" aria-label="${f.name}">
+                        ${f.rooms.length
+                            ? html`<div class="rooms">${f.rooms.map(roomHtml)}</div>`
+                            : html`<div class="card empty"><i class="fa-solid fa-couch"></i>${f.name} chưa có phòng nào.<br><a href="#/manage">Thêm phòng</a></div>`}
+                    </div>`)}
+            </div>
+        </div>
     `);
 
-    const roomsEl = $('#rooms', root);
+    const pager = $('#pager', root);
+    const track = $('#track', root);
+    const pages = $$('.pager__page', root);
+    const seg = $('#floors', root);
+    const lastOn = new Map(); // để biết thiết bị nào vừa ĐỔI trạng thái (cho hiệu ứng nảy)
 
     // ---------- Vẽ ----------
     function drawStatus() {
@@ -78,13 +132,13 @@ export function mount(root, { home, store, scenes, settings, toast }) {
 
     function drawHero() {
         const n = store.countOn(lights);
+        const extra = store.countOn(others);
         $('#hero', root).classList.toggle('is-lit', n > 0);
-        $('#heroCount', root).textContent = n;
+        rollNumber($('#heroCount', root), n);
         $('#heroLabel', root).textContent = n > 0 ? 'đèn đang bật' : 'Tất cả đèn đã tắt';
-        $('#heroSub', root).textContent = home.floors
-            .map(f => `${f.name}: ${store.countOn(lights.filter(d => d.floor === f))}`)
-            .join('  ·  ');
-        $('#allOff', root).disabled = n === 0;
+        const perFloor = floors.map(f => `${f.name}: ${store.countOn(lights.filter(d => d.floor === f))}`).join('  ·  ');
+        $('#heroSub', root).textContent = extra ? `${perFloor}  ·  +${extra} thiết bị khác` : perFloor;
+        $('#allOff', root).disabled = n + extra === 0;
     }
 
     function drawChips() {
@@ -92,14 +146,8 @@ export function mount(root, { home, store, scenes, settings, toast }) {
             <button class="chip" data-scene="${s.id}"><i class="fa-solid ${s.icon}"></i>${s.name}</button>`)}`);
     }
 
-    function drawFloorTabs() {
-        const el = $('#floors', root);
-        el.style.setProperty('--i', floorIndex);
-        $$('button', el).forEach((b, i) => b.setAttribute('aria-selected', String(i === floorIndex)));
-    }
-
     function drawTile(key) {
-        const tile = roomsEl.querySelector(`.tile[data-key="${CSS.escape(key)}"]`);
+        const tile = track.querySelector(`.tile[data-key="${CSS.escape(key)}"]`);
         if (!tile) return;
         const state = store.get(key);
         tile.classList.toggle('is-on', state.on === true);
@@ -107,50 +155,86 @@ export function mount(root, { home, store, scenes, settings, toast }) {
         tile.classList.toggle('is-unknown', state.on === null && !state.pending);
         tile.setAttribute('aria-pressed', String(state.on === true));
         tile.querySelector('.tile__status').textContent = statusLabel(state);
+        if (lastOn.has(key) && lastOn.get(key) !== state.on && state.on !== null) {
+            pop(tile.querySelector('.tile__icon'));
+        }
+        lastOn.set(key, state.on);
     }
 
     function drawRoomMeta(room) {
-        const el = roomsEl.querySelector(`.room[data-room="${CSS.escape(room.id)}"]`);
+        const el = track.querySelector(`.room[data-room="${CSS.escape(room.id)}"]`);
         if (!el) return;
         const n = store.countOn(room.devices);
-        el.querySelector('.room__meta').textContent = n ? `${n}/${room.devices.length} đang bật` : 'Đang tắt';
+        el.querySelector('.room__meta').textContent = !room.devices.length
+            ? 'Chưa có thiết bị'
+            : n ? `${n}/${room.devices.length} đang bật` : 'Đang tắt';
         const allBtn = el.querySelector('.room__all');
         if (allBtn) allBtn.textContent = n ? 'Tắt hết' : 'Bật hết';
     }
 
-    function drawRooms() {
-        const floor = home.floors[floorIndex];
-        if (!floor.rooms.length) {
-            render(roomsEl, html`<div class="card empty"><i class="fa-solid fa-couch"></i>Tầng này chưa có phòng nào.</div>`);
-            return;
-        }
-        render(roomsEl, html`${floor.rooms.map(room => html`
-            <section class="room" data-room="${room.id}">
-                <header class="room__head">
-                    <span class="room__icon"><i class="fa-solid ${roomIcon(room)}"></i></span>
-                    <div class="room__title">
-                        <h2>${room.name}</h2>
-                        <span class="room__meta"></span>
-                    </div>
-                    ${room.devices.length > 1 ? html`<button class="btn-pill room__all"></button>` : ''}
-                </header>
-                <div class="tiles">
-                    ${room.devices.map(d => html`
-                        <button class="tile" data-key="${d.key}">
-                            <span class="tile__icon"><i class="fa-solid ${deviceIcon(d)}"></i></span>
-                            <span class="tile__name">${d.name}</span>
-                            <span class="tile__status"></span>
-                        </button>`)}
-                </div>
-            </section>`)}`);
-        floor.rooms.forEach(room => {
-            room.devices.forEach(d => drawTile(d.key));
-            drawRoomMeta(room);
-        });
+    // ---------- Lật trang tầng ----------
+    const pageWidth = () => (pages[0]?.getBoundingClientRect().width || pager.clientWidth) + PAGE_GAP;
+
+    function placeTrack(dx = 0, animate = false) {
+        track.style.transition = animate && !reducedMotion() ? 'transform 0.55s var(--ease-ios)' : 'none';
+        track.style.transform = `translateX(${-floorIndex * pageWidth() + dx}px)`;
     }
 
+    function drawFloorTabs(progress = floorIndex) {
+        seg.style.setProperty('--i', clamp(progress, 0, floors.length - 1));
+        $$('button', seg).forEach((b, i) => b.setAttribute('aria-selected', String(i === floorIndex)));
+    }
+
+    function showFloor(index, animate = true) {
+        const done = animate ? smoothHeight(pager) : null;
+        floorIndex = index;
+        sessionStorage.setItem(FLOOR_KEY, String(index));
+        pages.forEach((p, i) => {
+            p.classList.toggle('is-active', i === index);
+            p.classList.remove('is-peek');
+            p.toggleAttribute('inert', i !== index);
+        });
+        done?.();
+        placeTrack(0, animate);
+        drawFloorTabs();
+    }
+
+    onSwipe(pager, {
+        start(dx) {
+            const target = floorIndex + (dx < 0 ? 1 : -1);
+            if (target < 0 || target >= floors.length) return false; // ở mép: nhường cho vuốt đổi tab
+            pages[target].classList.add('is-peek');
+            seg.classList.add('is-dragging');
+            return true;
+        },
+        move(dx) {
+            const w = pageWidth();
+            const target = floorIndex + (dx < 0 ? 1 : -1);
+            const ok = target >= 0 && target < floors.length;
+            if (ok) pages[target].classList.add('is-peek');
+            const x = ok ? dx : rubber(dx, w) * 0.4;
+            placeTrack(x);
+            drawFloorTabs(floorIndex - x / w);
+        },
+        end(dx, velocity) {
+            seg.classList.remove('is-dragging');
+            const step = decide(dx, velocity, pageWidth());
+            const target = floorIndex + step;
+            if (step && target >= 0 && target < floors.length) {
+                tap(settings);
+                showFloor(target);
+            } else {
+                showFloor(floorIndex);
+            }
+        },
+        cancel() {
+            seg.classList.remove('is-dragging');
+            showFloor(floorIndex);
+        }
+    });
+
     // ---------- Sự kiện ----------
-    roomsEl.addEventListener('click', e => {
+    track.addEventListener('click', e => {
         const tile = e.target.closest('.tile');
         if (tile) {
             tap(settings);
@@ -166,13 +250,9 @@ export function mount(root, { home, store, scenes, settings, toast }) {
         }
     });
 
-    $('#floors', root).addEventListener('click', e => {
+    seg.addEventListener('click', e => {
         const btn = e.target.closest('button');
-        if (!btn) return;
-        floorIndex = Number(btn.dataset.index);
-        sessionStorage.setItem(FLOOR_KEY, String(floorIndex));
-        drawFloorTabs();
-        drawRooms();
+        if (btn) showFloor(Number(btn.dataset.index));
     });
 
     $('#sceneChips', root).addEventListener('click', e => {
@@ -186,29 +266,36 @@ export function mount(root, { home, store, scenes, settings, toast }) {
 
     $('#allOff', root).addEventListener('click', () => {
         tap(settings);
-        store.setMany(lights.map(d => ({ key: d.key, on: false })));
-        toast('Đã tắt tất cả đèn', 'success');
+        store.setMany(home.allDevices.map(d => ({ key: d.key, on: false })));
+        toast('Đã tắt tất cả', 'success');
     });
+
+    const onResize = () => placeTrack();
+    window.addEventListener('resize', onResize);
 
     // ---------- Nghe thay đổi ----------
     const offStore = store.subscribe(event => {
         if (event.type === 'status') drawStatus();
         if (event.type === 'device') {
+            const device = home.devices.get(event.key);
+            if (!device) return;
             drawTile(event.key);
-            drawRoomMeta(home.devices.get(event.key).room);
+            drawRoomMeta(device.room);
             drawHero();
         }
     });
     const offScenes = scenes.onChange(drawChips);
 
     drawStatus();
-    drawHero();
     drawChips();
-    drawFloorTabs();
-    drawRooms();
+    home.allDevices.forEach(d => drawTile(d.key));
+    home.rooms.forEach(drawRoomMeta);
+    drawHero();
+    showFloor(floorIndex, false);
 
     return () => {
         offStore();
         offScenes();
+        window.removeEventListener('resize', onResize);
     };
 }

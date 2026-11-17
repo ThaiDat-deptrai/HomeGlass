@@ -3,15 +3,16 @@
 // -------------------------------------------------------------
 // Thứ tự:
 //   1. Áp cài đặt giao diện (màu, nền, sáng/tối)
-//   2. Đọc cấu hình nhà (config/home.json)
-//   3. Tạo transport (hiện là demo) + store trạng thái
+//   2. Đọc cấu hình nhà (bản chỉnh trên máy, hoặc file config/home.json)
+//   3. Tạo transport (hiện là demo) + store trạng thái + kịch bản
 //   4. Bật router để hiện màn hình
 //
 // Sơ đồ các lớp (chỉ gọi từ trên xuống, không gọi ngược):
-//   ui/views  ->  core (store, scenes, settings, commands)  ->  transport
+//   ui/views  ->  core (store, scenes, settings, commands, homeData)  ->  transport
 // =============================================================
 
-import { loadHome, ConfigError } from './core/config.js';
+import { parseHome, ConfigError } from './core/config.js';
+import { fetchHomeFile, readLocal, writeLocal, clearLocal, downloadJson } from './core/homeData.js';
 import { createStore } from './core/store.js';
 import { createSettings } from './core/settings.js';
 import { createScenes } from './core/scenes.js';
@@ -21,29 +22,56 @@ import { toast } from './ui/toast.js';
 import { html, render } from './ui/dom.js';
 
 import * as homeView from './ui/views/home.js';
+import * as temperatureView from './ui/views/temperature.js';
 import * as scenesView from './ui/views/scenes.js';
 import * as assistantView from './ui/views/assistant.js';
 import * as settingsView from './ui/views/settings.js';
+import * as manageView from './ui/views/manage.js';
 
 const CONFIG_URL = '../config/home.json';
 
+function showConfigError(app, problems) {
+    render(app, html`
+        <div class="card error-card">
+            <h1><i class="fa-solid fa-triangle-exclamation"></i> Không mở được nhà</h1>
+            <p>Cấu hình nhà có vấn đề:</p>
+            <ul>${problems.map(p => html`<li>${p}</li>`)}</ul>
+        </div>`);
+}
+
 async function start() {
     const app = document.getElementById('app');
+    document.getElementById('year').textContent = new Date().getFullYear();
+
     const settings = createSettings();
     settings.apply();
 
-    let home;
+    // ----- Đọc cấu hình: ưu tiên bản đã chỉnh trong app -----
+    let fileData;
     try {
-        home = await loadHome(CONFIG_URL);
+        fileData = await fetchHomeFile(CONFIG_URL);
     } catch (e) {
-        const problems = e instanceof ConfigError ? e.problems : [e.message];
-        render(app, html`
-            <div class="card error-card">
-                <h1><i class="fa-solid fa-triangle-exclamation"></i> Không mở được nhà</h1>
-                <p>File <code>config/home.json</code> có vấn đề:</p>
-                <ul>${problems.map(p => html`<li>${p}</li>`)}</ul>
-            </div>`);
-        return;
+        return showConfigError(app, [e.message]);
+    }
+
+    let source = 'file';
+    let home;
+    const local = readLocal();
+    if (local) {
+        try {
+            home = parseHome(local);
+            source = 'local';
+        } catch (e) {
+            clearLocal(); // bản chỉnh bị hỏng: quay về file gốc
+            toast('Bản chỉnh trên máy bị lỗi, đã dùng lại file gốc', 'error');
+        }
+    }
+    if (!home) {
+        try {
+            home = parseHome(fileData);
+        } catch (e) {
+            return showConfigError(app, e instanceof ConfigError ? e.problems : [e.message]);
+        }
     }
 
     const transport = createDemoTransport(home);
@@ -53,22 +81,62 @@ async function start() {
     // Thiết bị không xác nhận trong thời gian cho phép
     store.subscribe(event => {
         if (event.type === 'timeout') {
-            const device = home.devices.get(event.key);
-            toast(`${device.name} không phản hồi`, 'error');
+            const device = ctx.home.devices.get(event.key);
+            if (device) toast(`${device.name} không phản hồi`, 'error');
         }
     });
 
-    createRouter({
+    function applyHome(next) {
+        ctx.home = next;
+        store.syncHome(next);
+        scenes.syncHome(next);
+        router.refresh();
+    }
+
+    const ctx = {
+        home,
+        store,
+        scenes,
+        settings,
+        toast,
+        homeSource: () => source,
+
+        /**
+         * Lưu cấu hình mới (từ màn hình Quản lý thiết bị).
+         * Ném ConfigError nếu dữ liệu sai -> màn hình tự báo lỗi.
+         */
+        saveHome(data) {
+            const next = parseHome(data);
+            writeLocal(data);
+            source = 'local';
+            applyHome(next);
+        },
+        /** Bỏ mọi chỉnh sửa, dùng lại file config/home.json. */
+        resetHome() {
+            clearLocal();
+            source = 'file';
+            applyHome(parseHome(fileData));
+        },
+        exportHome: () => downloadJson(ctx.home.raw)
+    };
+
+    const router = createRouter({
         root: app,
         tabbar: document.getElementById('tabbar'),
-        ctx: { home, store, scenes, settings, toast },
+        ctx,
+        tabs: ['/', '/temperature', '/scenes', '/assistant', '/settings'],
         routes: {
-            '/': { tab: 'home', mount: homeView.mount },
-            '/scenes': { tab: 'scenes', mount: scenesView.mount },
-            '/assistant': { tab: 'assistant', mount: assistantView.mount },
-            '/settings': { tab: 'settings', mount: settingsView.mount }
+            '/': { mount: homeView.mount },
+            '/temperature': { mount: temperatureView.mount },
+            '/scenes': { mount: scenesView.mount },
+            '/assistant': { mount: assistantView.mount },
+            '/settings': { mount: settingsView.mount },
+            '/manage': { mount: manageView.mount, parent: '/settings' }
         }
     });
+
+    // Vẽ xong khung hình đầu tiên rồi mới bật hiệu ứng chuyển động
+    requestAnimationFrame(() => requestAnimationFrame(() => document.documentElement.classList.add('is-ready')));
 }
 
 start();

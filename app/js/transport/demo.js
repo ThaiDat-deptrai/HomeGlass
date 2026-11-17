@@ -2,47 +2,89 @@
 // TRANSPORT GIẢ LẬP (DEMO)
 // -------------------------------------------------------------
 // Đóng vai "ngôi nhà ảo": nhận lệnh, chờ một chút rồi xác nhận,
-// giống hệt cách ESP thật sẽ trả lời. Dùng để làm và thử giao diện
-// khi chưa có phần cứng.
+// giống hệt cách ESP thật sẽ trả lời. Kèm nhiệt độ giả của từng ESP.
+// Dùng để làm và thử giao diện khi chưa có phần cứng.
 //
-// Mọi transport đều có đúng 3 thứ:
-//   name                       tên hiển thị
-//   connect({onState,onStatus}) bắt đầu, báo trạng thái về store
-//   send(key, on)              gửi yêu cầu bật/tắt 1 thiết bị
-// Sau này transport/mqtt.js cũng chỉ cần đúng 3 thứ này.
+// Mọi transport đều có:
+//   name                                       tên hiển thị
+//   connect({ onState, onStatus, onTelemetry }) bắt đầu, báo về store
+//   send(key, on)                              gửi yêu cầu bật/tắt
+//   sync(home)                     (tùy chọn)  cấu hình nhà vừa đổi
+// Sau này transport/mqtt.js cũng chỉ cần đúng những thứ này.
 // =============================================================
 
 const STORAGE_KEY = 'hg.demo.states';
+const LIVE_EVERY_MS = 5000;           // ESP gửi nhiệt độ mỗi 5 giây
+const BACKFILL_STEP_MS = 5 * 60000;   // lịch sử giả: 5 phút một điểm
+const DAY_MS = 24 * 3600000;
 
 // Vài đèn bật sẵn để màn hình trông "có người ở"
 const DEFAULT_ON = ['t1-phong-khach/den-to', 't2-phong-ngu-2/den-ngu', 't2-phong-tho/den-tho'];
 
-export function createDemoTransport(home) {
+export function createDemoTransport(initialHome) {
+    let home = initialHome;
+    let handlers = null;
+    let timer = null;
+
+    // ----- Trạng thái thiết bị (nhớ qua các lần mở app) -----
     let saved = null;
     try {
         saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
     } catch (e) { /* bỏ qua */ }
 
     const states = {};
-    home.allDevices.forEach(d => {
-        states[d.key] = saved && d.key in saved ? !!saved[d.key] : DEFAULT_ON.includes(d.key);
-    });
-
     const persist = () => {
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(states));
         } catch (e) { /* bỏ qua */ }
     };
 
-    let handlers = null;
+    // ----- Nhiệt độ giả: mỗi ESP một mức nền + dao động ngày/đêm + nhiễu -----
+    const temps = new Map();
+    const baseTemp = id => (id === 0 ? 46 : 38 + (id * 37) % 7);
+    function sample(id, t) {
+        const hour = new Date(t).getHours() + new Date(t).getMinutes() / 60;
+        const target = baseTemp(id) + 2.6 * Math.sin(((hour - 9) / 24) * 2 * Math.PI);
+        const prev = temps.get(id) ?? target;
+        const v = prev + (target - prev) * 0.25 + (Math.random() - 0.5) * 0.9;
+        temps.set(id, v);
+        return Math.round(v * 10) / 10;
+    }
+
+    function tick() {
+        const t = Date.now();
+        home.nodes.forEach(n => handlers.onTelemetry(n.id, [{ t, v: sample(n.id, t) }]));
+    }
+
+    function sync(h) {
+        home = h;
+        h.allDevices.forEach(d => {
+            if (d.key in states) return;
+            states[d.key] = saved && d.key in saved ? !!saved[d.key] : DEFAULT_ON.includes(d.key);
+            handlers?.onState(d.key, states[d.key]);
+        });
+        // ESP mới thêm: tạo sẵn lịch sử để biểu đồ không trống
+        if (handlers) h.nodes.forEach(n => { if (!temps.has(n.id)) backfill(n.id); });
+    }
+
+    function backfill(id) {
+        const now = Date.now();
+        const samples = [];
+        for (let t = now - DAY_MS; t <= now; t += BACKFILL_STEP_MS) samples.push({ t, v: sample(id, t) });
+        handlers.onTelemetry(id, samples);
+    }
 
     return {
         name: 'demo',
+        sync,
 
         connect(h) {
             handlers = h;
             handlers.onStatus('demo');
+            sync(home); // tạo trạng thái + lịch sử nhiệt độ cho mọi ESP
             Object.entries(states).forEach(([key, on]) => handlers.onState(key, on));
+            clearInterval(timer);
+            timer = setInterval(tick, LIVE_EVERY_MS);
         },
 
         send(key, on) {

@@ -42,6 +42,7 @@ export function mount(root, { home, store, settings, toast }) {
                 <p>Chỉnh giao diện theo ý bạn</p>
             </header>
 
+            <div class="settings-cols"><div class="settings-col">
             <h2 class="section-title">Giao diện</h2>
             <section class="card group">
                 <div class="row row--stack">
@@ -94,6 +95,7 @@ export function mount(root, { home, store, settings, toast }) {
                 </div>
             </section>
 
+            </div><div class="settings-col">
             <h2 class="section-title">Âm thanh</h2>
             <section class="card group">
                 <div class="row">
@@ -108,13 +110,14 @@ export function mount(root, { home, store, settings, toast }) {
 
             <h2 class="section-title">Ngôi nhà</h2>
             <section class="card group">
+                <a class="row row--link" href="#/manage">
+                    <span class="row__label"><i class="fa-solid fa-sliders"></i>Phòng & thiết bị</span>
+                    <span class="row__value">${home.rooms.size} khu vực · ${home.allDevices.length} thiết bị · ${home.nodes.size} ESP</span>
+                    <i class="fa-solid fa-chevron-right row__go"></i>
+                </a>
                 <div class="row">
                     <span class="row__label"><i class="fa-solid fa-wifi"></i>Kết nối</span>
                     <span class="row__value">${CONNECTION_TEXT[store.status()] || store.status()}</span>
-                </div>
-                <div class="row">
-                    <span class="row__label"><i class="fa-solid fa-house"></i>${home.name}</span>
-                    <span class="row__value">${home.floors.length} tầng · ${home.rooms.size} khu vực · ${home.allDevices.length} thiết bị</span>
                 </div>
             </section>
 
@@ -127,10 +130,11 @@ export function mount(root, { home, store, settings, toast }) {
                 <div class="row">
                     <span class="row__label"><i class="fa-solid fa-circle-info"></i>HomeGlass</span>
                     <a class="row__value" href="https://github.com/ThaiDat-deptrai/HomeGlass" target="_blank" rel="noopener">
-                        Bản 0.1 · <i class="fa-brands fa-github"></i> GitHub
+                        Bản 0.2 · <i class="fa-brands fa-github"></i> GitHub
                     </a>
                 </div>
             </section>
+            </div></div>
         `);
     }
 

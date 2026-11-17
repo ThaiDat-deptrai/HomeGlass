@@ -4,8 +4,12 @@
 
 let audioCtx = null;
 
+const isTouch = window.matchMedia('(pointer: coarse)').matches;
+
 export function tap(settings) {
-    if (navigator.vibrate) navigator.vibrate(8);
+    if (isTouch && navigator.vibrate) {
+        try { navigator.vibrate(8); } catch (e) { /* bỏ qua */ }
+    }
     if (!settings.get().sound) return;
     try {
         audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();

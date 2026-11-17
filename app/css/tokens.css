@@ -39,7 +39,36 @@
 
     --blur: 20px;
     --glass-strength: 0.55; /* 0 = kính rất trong, 1 = kính đục (chỉnh trong Cài đặt) */
-    --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    /* Chuyển động - mô phỏng cảm giác iOS */
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1);          /* chung */
+    --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);      /* trượt trang, bảng trượt */
+    --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1); /* nảy nhẹ khi thả tay */
+
+    /* Màu "đang bật" cho thiết bị KHÔNG phải đèn */
+    --cool-1: #b9f0ff;
+    --cool-2: #5cc8f5;
+    --cool-ink: #04344a;
+    --cool-glow: rgba(56, 189, 248, 0.38);
+    --mint-1: #c6f6d5;
+    --mint-2: #5fd68f;
+    --mint-ink: #053d1d;
+    --mint-glow: rgba(74, 222, 128, 0.38);
+
+    /* Biểu đồ: 8 màu phân loại (thứ tự CỐ ĐỊNH, đã kiểm tra cho người mù màu) */
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    --series-5: #e87ba4;
+    --series-6: #008300;
+    --series-7: #6250d6;
+    --series-8: #e34948;
+
+    /* Trạng thái (luôn đi kèm icon + chữ, không dùng màu đơn lẻ) */
+    --st-good: #0ca30c;
+    --st-warn: #fab219;
+    --st-crit: #d03b3b;
 
     /* ---------- Chủ đề SÁNG ---------- */
     color-scheme: light;
@@ -63,6 +92,14 @@
 /* ---------- Chủ đề TỐI (chọn tay) ---------- */
 :root[data-theme="dark"] {
     color-scheme: dark;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #0ca30c;
+    --series-7: #9085e9;
+    --series-8: #e66767;
     --bg-base: #0a0f20;
     --bg-overlay: rgba(5, 8, 20, 0.5);
     --blob-1: #1c3683;
@@ -84,6 +121,14 @@
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
         color-scheme: dark;
+        --series-1: #3987e5;
+        --series-2: #d95926;
+        --series-3: #199e70;
+        --series-4: #c98500;
+        --series-5: #d55181;
+        --series-6: #0ca30c;
+        --series-7: #9085e9;
+        --series-8: #e66767;
         --bg-base: #0a0f20;
         --bg-overlay: rgba(5, 8, 20, 0.5);
         --blob-1: #1c3683;

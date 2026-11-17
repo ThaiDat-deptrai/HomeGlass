@@ -43,8 +43,9 @@ function buildPresets(home) {
     ];
 }
 
-export function createScenes(home) {
-    const presets = buildPresets(home);
+export function createScenes(initialHome) {
+    let home = initialHome;
+    let presets = buildPresets(home);
     const listeners = new Set();
 
     let custom = [];
@@ -53,9 +54,11 @@ export function createScenes(home) {
     } catch (e) { custom = []; }
 
     // Bỏ các hành động trỏ tới thiết bị không còn trong cấu hình
-    custom = custom
+    const clean = list => list
         .filter(s => s && s.id && s.name && Array.isArray(s.actions))
         .map(s => ({ ...s, preset: false, actions: s.actions.filter(a => home.devices.has(a.key)) }));
+
+    custom = clean(custom);
 
     function persist() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(custom));
@@ -84,6 +87,21 @@ export function createScenes(home) {
 
         remove(id) {
             custom = custom.filter(s => s.id !== id);
+            persist();
+        },
+
+        /** Thiết bị đổi phòng -> mã đổi: cập nhật các kịch bản đang dùng nó. */
+        renameKey(oldKey, newKey) {
+            if (oldKey === newKey) return;
+            custom.forEach(s => s.actions.forEach(a => { if (a.key === oldKey) a.key = newKey; }));
+            persist();
+        },
+
+        /** Cấu hình nhà thay đổi: tính lại kịch bản có sẵn, dọn thiết bị đã xóa. */
+        syncHome(next) {
+            home = next;
+            presets = buildPresets(home);
+            custom = clean(custom);
             persist();
         },
 

@@ -1,8 +1,9 @@
 // =============================================================
-// CONFIG - đọc và kiểm tra file khai báo nhà (config/home.json)
+// CONFIG - kiểm tra cấu hình nhà và dựng bảng tra nhanh
 // -------------------------------------------------------------
-// Đây là NGUỒN DUY NHẤT về tầng / phòng / thiết bị.
+// Cấu hình là NGUỒN DUY NHẤT về tầng / phòng / thiết bị / ESP.
 // Giao diện không hề viết cứng tên phòng hay tên đèn nào.
+// (Đọc / lưu / sửa cấu hình: xem core/homeData.js)
 // =============================================================
 
 const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -14,25 +15,15 @@ export class ConfigError extends Error {
     }
 }
 
-export async function loadHome(url) {
-    let data;
-    try {
-        const res = await fetch(url, { cache: 'no-cache' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        data = await res.json();
-    } catch (e) {
-        throw new ConfigError(['Không đọc được file ' + url + ' (' + e.message + ')']);
-    }
-    return parseHome(data);
-}
-
 /**
  * Kiểm tra dữ liệu và dựng sẵn các bảng tra nhanh.
  * Mỗi thiết bị có một "key" duy nhất trong cả nhà: "<mã phòng>/<mã thiết bị>"
  *   ví dụ: "t1-phong-khach/den-to"
+ * Mỗi ESP (node) có số id: 0 = trung tâm (ESP32-S3), 1, 2, 3... = các ESP32-C3.
  */
 export function parseHome(data) {
     const problems = [];
+    const nodes = new Map();
     const rooms = new Map();
     const devices = new Map();
 
@@ -40,6 +31,25 @@ export function parseHome(data) {
         throw new ConfigError(['Thiếu danh sách "floors" (các tầng).']);
     }
 
+    // ----- Bộ điều khiển ESP -----
+    (data.nodes || []).forEach(n => {
+        if (!Number.isInteger(n.id) || n.id < 0 || n.id > 250) {
+            problems.push(`Số ESP không hợp lệ: "${n.id}" (phải là số nguyên 0–250)`);
+            return;
+        }
+        if (nodes.has(n.id)) problems.push(`Trùng số ESP: ${n.id}`);
+        nodes.set(n.id, {
+            id: n.id,
+            name: n.name || `ESP ${n.id}`,
+            board: n.board || (n.id === 0 ? 'ESP32-S3' : 'ESP32-C3')
+        });
+    });
+
+    const checkNode = (id, where) => {
+        if (id !== null && !nodes.has(id)) problems.push(`${where} gán vào ESP số ${id}, nhưng không có ESP này trong "nodes"`);
+    };
+
+    // ----- Tầng -> phòng -> thiết bị -----
     const floors = data.floors.map(f => {
         const floor = { id: f.id, name: f.name || f.id, rooms: [] };
         if (!ID_PATTERN.test(f.id || '')) problems.push(`Mã tầng không hợp lệ: "${f.id}"`);
@@ -48,18 +58,23 @@ export function parseHome(data) {
             const room = { id: r.id, name: r.name || r.id, node: r.node ?? null, floor, devices: [] };
             if (!ID_PATTERN.test(r.id || '')) problems.push(`Mã phòng không hợp lệ: "${r.id}"`);
             if (rooms.has(r.id)) problems.push(`Trùng mã phòng: "${r.id}"`);
+            checkNode(room.node, `Phòng "${room.name}"`);
             rooms.set(r.id, room);
 
             (r.devices || []).forEach(d => {
                 const key = `${r.id}/${d.id}`;
                 if (!ID_PATTERN.test(d.id || '')) problems.push(`Mã thiết bị không hợp lệ: "${d.id}" (phòng ${r.id})`);
                 if (devices.has(key)) problems.push(`Trùng mã thiết bị: "${key}"`);
+                const ownNode = d.node ?? null;
+                checkNode(ownNode, `Thiết bị "${d.name || d.id}"`);
                 const device = {
                     key,
                     id: d.id,
                     name: d.name || d.id,
                     type: d.type || 'light',
                     ch: d.ch ?? null,
+                    ownNode,                   // ESP ghi riêng cho thiết bị (nếu có)
+                    node: ownNode ?? room.node, // ESP thực sự điều khiển
                     room,
                     floor
                 };
@@ -79,6 +94,8 @@ export function parseHome(data) {
         floors,
         rooms,
         devices,
-        allDevices: [...devices.values()]
+        nodes,
+        allDevices: [...devices.values()],
+        raw: data
     };
 }

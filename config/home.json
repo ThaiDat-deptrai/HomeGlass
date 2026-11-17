@@ -1,6 +1,14 @@
 {
-  "_ghiChu": "File khai báo CẢ NHÀ. App và ESP đều đọc từ đây. Thêm thiết bị = thêm 1 dòng vào 'devices'. 'node' và 'ch' = null nghĩa là CHƯA CHỐT (chờ biết đi dây). Giải thích các trường: xem README.md, mục 'Cấu hình nhà'.",
+  "_ghiChu": "File khai báo CẢ NHÀ. App và ESP đều đọc từ đây. Có thể sửa ngay trong app (Cài đặt -> Phòng & thiết bị) rồi tải file về. 'nodes' = các bộ điều khiển ESP (0 = trung tâm). 'node' và 'ch' = null nghĩa là CHƯA CHỐT. Giải thích: README.md, mục 'Cấu hình nhà'.",
   "home": "Nhà của tôi",
+  "nodes": [
+    { "id": 0, "name": "Trung tâm", "board": "ESP32-S3" },
+    { "id": 1, "name": "ESP 1", "board": "ESP32-C3" },
+    { "id": 2, "name": "ESP 2", "board": "ESP32-C3" },
+    { "id": 3, "name": "ESP 3", "board": "ESP32-C3" },
+    { "id": 4, "name": "ESP 4", "board": "ESP32-C3" },
+    { "id": 5, "name": "ESP 5", "board": "ESP32-C3" }
+  ],
   "floors": [
     {
       "id": "t1",

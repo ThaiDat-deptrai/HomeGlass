@@ -65,7 +65,7 @@ Mỗi phòng có `node`: số thứ tự con ESP32-C3 điều khiển phòng đ�
 | Giai đoạn | Việc | Trạng thái |
 |---|---|---|
 | 0. Khảo sát | Liệt kê tầng, phòng, thiết bị, linh kiện | ✅ Xong danh sách nhà |
-| 1a. Giao diện | 4 màn hình chạy bằng dữ liệu giả lập (demo) | ✅ Bản 0.1 |
+| 1a. Giao diện | 6 màn hình, vuốt đổi tầng/tab, nhiệt độ ESP, quản lý thiết bị trong app (dữ liệu demo) | ✅ Bản 0.2 |
 | 1b. Nền móng | Kết nối MQTT thật + đăng nhập + Master + 1 node mẫu | ⏳ Tiếp theo |
 | 2. Nhân rộng | Lắp từng phòng: tầng 2 trước, rồi tầng 1 | ⬜ |
 | 3. Nâng cao | Kịch bản, hẹn giờ, cảm biến, giọng nói, chạy khi mất mạng | ⬜ |

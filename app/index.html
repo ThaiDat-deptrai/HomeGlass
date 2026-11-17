@@ -37,11 +37,18 @@
         <div class="loading"><i class="fa-solid fa-circle-notch"></i>Đang mở nhà…</div>
     </main>
 
+    <!-- Điện thoại: thanh dưới cùng. Máy tính (>= 1024px): menu dọc bên trái -->
     <nav class="tabbar" id="tabbar" aria-label="Điều hướng chính">
-        <a href="#/" data-tab="home"><i class="fa-solid fa-house"></i><span>Nhà</span></a>
-        <a href="#/scenes" data-tab="scenes"><i class="fa-solid fa-wand-magic-sparkles"></i><span>Kịch bản</span></a>
-        <a href="#/assistant" data-tab="assistant"><i class="fa-solid fa-microphone"></i><span>Trợ lý</span></a>
-        <a href="#/settings" data-tab="settings"><i class="fa-solid fa-gear"></i><span>Cài đặt</span></a>
+        <div class="tabbar__brand"><span><i class="fa-solid fa-house-signal"></i></span>HomeGlass</div>
+        <div class="tabbar__links">
+            <span class="tabbar__pill" aria-hidden="true"></span>
+            <a href="#/" data-path="/"><i class="fa-solid fa-house"></i><span>Nhà</span></a>
+            <a href="#/temperature" data-path="/temperature"><i class="fa-solid fa-temperature-half"></i><span>Nhiệt độ</span></a>
+            <a href="#/scenes" data-path="/scenes"><i class="fa-solid fa-wand-magic-sparkles"></i><span>Kịch bản</span></a>
+            <a href="#/assistant" data-path="/assistant"><i class="fa-solid fa-microphone"></i><span>Trợ lý</span></a>
+            <a href="#/settings" data-path="/settings"><i class="fa-solid fa-gear"></i><span>Cài đặt</span></a>
+        </div>
+        <p class="tabbar__credit">© <span id="year">2026</span> HomeGlass<br />Bản quyền thuộc về <strong>Thái Đạt</strong></p>
     </nav>
 
     <div id="toasts" aria-live="polite"></div>
