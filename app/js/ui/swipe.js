@@ -14,7 +14,7 @@
 const LOCK_DISTANCE = 10; // px: di chuyển bao nhiêu thì quyết định hướng
 
 /** Vùng không nhận vuốt (tự cuộn ngang, thanh trượt, biểu đồ, ô nhập...). */
-const IGNORE = '.chips, input, textarea, select, .chart, .sheet, .no-swipe';
+const IGNORE = '.chips, input, textarea, select, .chart, .sheet, .no-swipe, .segmented';
 
 /**
  * onSwipe(el, {

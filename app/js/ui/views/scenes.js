@@ -6,7 +6,7 @@ import { html, render, $, $$ } from '../dom.js';
 import { openSheet } from '../sheet.js';
 import { tap } from '../feedback.js';
 import { SCENE_ICONS } from '../../core/scenes.js';
-import { DAYS, KINDS, nextRun, daysText, whenText, relativeText } from '../../core/schedules.js';
+import { DAYS, KINDS, nextRun, daysText, whenText, relativeText, endText, endActionsOf } from '../../core/schedules.js';
 
 const OFFSETS = [-60, -30, -15, 0, 15, 30, 60];
 const QUICK_DAYS = [
@@ -56,7 +56,7 @@ export function mount(root, ctx) {
             <div class="sched ${s.enabled ? '' : 'is-off'}" data-sched="${s.id}">
                 <span class="sched__icon"><i class="fa-solid ${KINDS[s.kind].icon}"></i></span>
                 <button class="sched__main" data-act="edit-sched">
-                    <strong>${s.kind === 'time' ? s.time : KINDS[s.kind].label}</strong>
+                    <strong>${s.kind === 'time' ? s.time : KINDS[s.kind].label}${s.end ? html`<span class="sched__end"> → tắt ${s.end.kind === 'time' ? s.end.time : KINDS[s.end.kind].label.toLowerCase()}</span>` : ''}</strong>
                     <span>${scene ? scene.name : 'Kịch bản đã xóa'} · ${daysText(s.days)}</span>
                     <small>${s.enabled ? `Lần tới: ${relativeText(at)}` : 'Đang tắt'}${s.kind !== 'time' ? ` · ${whenText(s, location)}` : ''}</small>
                 </button>
@@ -100,7 +100,12 @@ export function mount(root, ctx) {
     function openSchedule(existing, sceneId) {
         const s = existing
             ? { ...existing, days: [...existing.days] }
-            : { sceneId: sceneId || scenes.list()[0]?.id, kind: 'time', time: '18:00', offset: 0, days: [0, 1, 2, 3, 4, 5, 6], enabled: true };
+            : { sceneId: sceneId || scenes.list()[0]?.id, kind: 'time', time: '18:00', offset: 0, days: [0, 1, 2, 3, 4, 5, 6], enabled: true, end: null };
+        // Giờ tắt: bật mặt trời lặn thì gợi ý tắt lúc mặt trời mọc, còn lại 23:00
+        let endOn = !!s.end;
+        let end = s.end ? { ...s.end } : null;
+        const defaultEnd = () => (s.kind === 'sunset' ? { kind: 'sunrise', time: '06:00', offset: 0 } : { kind: 'time', time: '23:00', offset: 0 });
+        if (!end) end = defaultEnd();
 
         openSheet({
             title: existing ? 'Sửa lịch hẹn' : 'Hẹn giờ kịch bản',
@@ -113,7 +118,7 @@ export function mount(root, ctx) {
                     </label>
 
                     <div class="field"><span>Khi nào</span>
-                        <div class="segmented segmented--block" id="schKind" role="tablist" style="--n:3">
+                        <div class="segmented segmented--block segmented--fit" id="schKind" role="tablist" style="--n:3">
                             <span class="segmented__thumb"></span>
                             ${Object.entries(KINDS).map(([id, k]) => html`<button type="button" role="tab" data-kind="${id}"><i class="fa-solid ${k.icon}"></i>${k.label}</button>`)}
                         </div>
@@ -127,6 +132,26 @@ export function mount(root, ctx) {
                             ${OFFSETS.map(o => html`<button type="button" data-off="${o}">${o === 0 ? 'Đúng giờ' : (o > 0 ? '+' : '−') + Math.abs(o) + ' phút'}</button>`)}
                         </div>
                         <p class="field__hint" id="schSunHint"></p>
+                    </div>
+
+                    <div class="row sched-end__toggle">
+                        <span class="row__label"><i class="fa-solid fa-moon"></i>Tự tắt lại</span>
+                        <button class="switch" role="switch" id="schEndOn" aria-checked="${endOn}"></button>
+                    </div>
+                    <div class="sched-end" id="schEndBox">
+                        <div class="segmented segmented--block segmented--fit" id="schEndKind" role="tablist" style="--n:3">
+                            <span class="segmented__thumb"></span>
+                            ${Object.entries(KINDS).map(([id, k]) => html`<button type="button" role="tab" data-endkind="${id}"><i class="fa-solid ${k.icon}"></i>${k.label}</button>`)}
+                        </div>
+                        <label class="field" id="schEndTimeField"><span>Giờ tắt</span>
+                            <input type="time" id="schEndTime" class="time-input" value="${end.time}" />
+                        </label>
+                        <div class="field" id="schEndOffsetField"><span>Lệch so với giờ mặt trời</span>
+                            <div class="chip-pick" id="schEndOffset">
+                                ${OFFSETS.map(o => html`<button type="button" data-endoff="${o}">${o === 0 ? 'Đúng giờ' : (o > 0 ? '+' : '−') + Math.abs(o) + ' phút'}</button>`)}
+                            </div>
+                        </div>
+                        <p class="field__hint" id="schEndHint"></p>
                     </div>
 
                     <div class="field"><span>Lặp lại</span>
@@ -156,6 +181,21 @@ export function mount(root, ctx) {
                     $$('#schOffset button', el).forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.off) === s.offset)));
                     $$('#schDays button', el).forEach(b => b.setAttribute('aria-pressed', String(s.days.includes(Number(b.dataset.day)))));
                     if (s.kind !== 'time') $('#schSunHint', el).textContent = `Hôm nay: ${whenText(s, location)}. Giờ tự đổi theo mùa.`;
+
+                    // ----- Giờ tắt -----
+                    $('#schEndOn', el).setAttribute('aria-checked', String(endOn));
+                    $('#schEndBox', el).hidden = !endOn;
+                    const endSeg = $('#schEndKind', el);
+                    endSeg.style.setProperty('--i', kinds.indexOf(end.kind));
+                    $$('button', endSeg).forEach(b => b.setAttribute('aria-selected', String(b.dataset.endkind === end.kind)));
+                    $('#schEndTimeField', el).hidden = end.kind !== 'time';
+                    $('#schEndOffsetField', el).hidden = end.kind === 'time';
+                    $$('#schEndOffset button', el).forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.endoff) === end.offset)));
+                    const scene = scenes.get($('#schScene', el).value);
+                    const willOff = endActionsOf(scene).length;
+                    $('#schEndHint', el).textContent = willOff
+                        ? `Đến ${endText({ ...s, end }, location)}: tắt lại ${willOff} thiết bị mà kịch bản đã bật.`
+                        : 'Kịch bản này không bật thiết bị nào, nên đến giờ tắt sẽ không có gì để tắt.';
                 };
                 paint();
 
@@ -176,11 +216,22 @@ export function mount(root, ctx) {
                     if (sw) {
                         s.enabled = !s.enabled;
                         sw.setAttribute('aria-checked', String(s.enabled));
+                        return;
                     }
+                    if (e.target.closest('#schEndOn')) {
+                        endOn = !endOn;
+                        if (endOn && !s.end) end = defaultEnd();
+                        return paint();
+                    }
+                    const endKind = e.target.closest('#schEndKind button');
+                    if (endKind) { end.kind = endKind.dataset.endkind; return paint(); }
+                    const endOff = e.target.closest('#schEndOffset button');
+                    if (endOff) { end.offset = Number(endOff.dataset.endoff); return paint(); }
                 });
                 el.addEventListener('change', e => {
-                    if (e.target.id === 'schTime') s.time = e.target.value || s.time;
-                    if (e.target.id === 'schScene') s.sceneId = e.target.value;
+                    if (e.target.id === 'schTime') { s.time = e.target.value || s.time; paint(); }
+                    if (e.target.id === 'schScene') { s.sceneId = e.target.value; paint(); }
+                    if (e.target.id === 'schEndTime') { end.time = e.target.value || end.time; paint(); }
                 });
             },
             footer(el, close) {
@@ -201,6 +252,11 @@ export function mount(root, ctx) {
                     s.time = $('#schTime').value || s.time;
                     s.sceneId = $('#schScene').value;
                     if (!s.days.length) return toast('Chọn ít nhất 1 ngày trong tuần', 'error');
+                    end.time = $('#schEndTime').value || end.time;
+                    s.end = endOn ? { ...end } : null;
+                    if (s.end && s.end.kind === s.kind && (s.kind !== 'time' ? s.end.offset === s.offset : s.end.time === s.time)) {
+                        return toast('Giờ tắt đang trùng giờ bật', 'error');
+                    }
                     const saved = schedules.save(s);
                     const at = nextRun(saved, new Date(), location);
                     toast(at ? `Đã hẹn: ${relativeText(at)}` : 'Đã lưu lịch (đang tắt)', 'success');

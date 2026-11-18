@@ -16,7 +16,7 @@ import { fetchHomeFile, readLocal, writeLocal, clearLocal, downloadJson } from '
 import { createStore } from './core/store.js';
 import { createSettings } from './core/settings.js';
 import { createScenes } from './core/scenes.js';
-import { createSchedules, startDemoRunner } from './core/schedules.js';
+import { createSchedules, startDemoRunner, endActionsOf } from './core/schedules.js';
 import { createDemoTransport } from './transport/demo.js';
 import { createMqttTransport } from './transport/mqtt.js';
 import { getAuth, clearAuth, getMode, setMode, setLoginNotice } from './core/auth.js';
@@ -24,9 +24,10 @@ import { createSync } from './core/sync.js';
 import { showLogin } from './ui/views/login.js';
 import { createRouter } from './ui/router.js';
 import { toast } from './ui/toast.js';
-import { enablePress } from './ui/press.js';
+import { enablePress, PRESSABLE } from './ui/press.js';
+import { bindFeedback, enableTapSound } from './ui/feedback.js';
 import { logError, captureGlobalErrors } from './core/errlog.js';
-import { enableWheelSwitch } from './ui/wheel.js';
+import { enableWheelSwitch, enableTouchSlide } from './ui/wheel.js';
 import { html, render } from './ui/dom.js';
 
 import * as homeView from './ui/views/home.js';
@@ -146,6 +147,11 @@ async function start() {
             store.setMany(scene.actions);
             scenes.activate(scene.id);
             toast(`⏰ Đã chạy "${scene.name}" theo lịch hẹn`, 'success', 4000);
+        }, (sceneId) => {
+            const scene = scenes.get(sceneId);
+            if (!scene) return;
+            store.setMany(endActionsOf(scene));
+            toast(`⏰ Hết giờ "${scene.name}": đã tắt lại`, 'success', 4000);
         });
     }
 
@@ -299,7 +305,10 @@ async function start() {
     });
 
     enablePress(); // chạm vào khối nào cũng lún xuống + nảy lên như iPhone
+    bindFeedback(settings);
+    enableTapSound(PRESSABLE); // mọi nút đều kêu "tách" (nếu bật trong Cài đặt)
     enableWheelSwitch(); // máy tính: lăn chuột trên thanh chọn / menu trái để đổi mục
+    enableTouchSlide();  // điện thoại: lướt ngón tay dọc thanh chọn / thanh tab để đổi mục
 
     // Vẽ xong khung hình đầu tiên rồi mới bật hiệu ứng chuyển động
     requestAnimationFrame(() => requestAnimationFrame(() => document.documentElement.classList.add('is-ready')));

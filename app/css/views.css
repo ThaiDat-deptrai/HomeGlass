@@ -1146,6 +1146,14 @@
     .sheet { border-radius: var(--r-xl); }
 }
 
+/* Máy tính có menu trái: đặt bảng vào GIỮA vùng nội dung (không phải giữa cả màn hình) cho cân */
+@media (min-width: 1024px) {
+    .sheet-overlay {
+        padding-left: 300px;
+        padding-right: max(40px, calc(100vw - 1640px));
+    }
+}
+
 .sheet__drag {
     cursor: grab;
     touch-action: none;
@@ -1759,13 +1767,35 @@ a.row__value:hover {
     font-weight: 600;
 }
 
+/* Hẹn giờ: giờ tắt */
+.sched-end {
+    padding: 4px 0 6px;
+}
+
+.sched-end .field:first-of-type {
+    margin-top: 12px;
+}
+
+.sched__end {
+    font-weight: 500;
+    color: var(--text-2);
+    font-size: 0.86em;
+}
+
 /* ================= ĐĂNG NHẬP ================= */
 html.is-login .tabbar {
     display: none;
 }
 
+/* Lúc đăng nhập không có menu: bỏ khoảng chừa cho menu trái / thanh dưới -> thẻ nằm chính giữa */
+html.is-login .app {
+    max-width: none;
+    margin: 0;
+    padding: 16px;
+}
+
 .login {
-    min-height: calc(100dvh - 120px);
+    min-height: calc(100dvh - 32px);
     display: grid;
     place-items: center;
     padding: var(--s-5) 0;

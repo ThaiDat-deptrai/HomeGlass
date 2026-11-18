@@ -40,3 +40,82 @@ export function enableWheelSwitch() {
         if (next && next !== items[current]) next.click();
     }, { passive: false });
 }
+
+// =============================================================
+// ĐIỆN THOẠI: lướt ngón tay dọc thanh chọn -> mục được chọn chạy theo ngón tay
+// (giống thanh chọn của iPhone). Dùng cho mọi thanh viên thuốc + thanh tab dưới cùng.
+// =============================================================
+const BARS = '.segmented, .tabbar__links';
+const SLIDE_LOCK = 8; // px: lướt ngang bao nhiêu thì nhận là đang lướt trên thanh
+
+const itemsOf = bar => (bar.classList.contains('tabbar__links')
+    ? [...bar.querySelectorAll('a')]
+    : [...bar.querySelectorAll('button:not([disabled])')]);
+
+const selectedOf = bar => itemsOf(bar).find(el => el.getAttribute('aria-selected') === 'true' || el.getAttribute('aria-current') === 'page') || null;
+
+/** Mục nằm dưới ngón tay (lướt quá 2 đầu thì lấy mục đầu / cuối). */
+function itemAt(bar, x) {
+    const items = itemsOf(bar);
+    if (!items.length) return null;
+    const rects = items.map(el => el.getBoundingClientRect());
+    if (x <= rects[0].left) return items[0];
+    if (x >= rects[rects.length - 1].right) return items[items.length - 1];
+    return items.find((el, i) => x >= rects[i].left && x <= rects[i].right) || null;
+}
+
+export function enableTouchSlide() {
+    let bar = null;
+    let id = null;
+    let x0 = 0;
+    let y0 = 0;
+    let sliding = false;
+    let last = null;
+    let swallowUntil = 0;
+
+    window.addEventListener('pointerdown', e => {
+        bar = null;
+        if (e.pointerType === 'mouse') return;
+        const b = e.target.closest?.(BARS);
+        if (!b) return;
+        bar = b;
+        id = e.pointerId;
+        x0 = e.clientX;
+        y0 = e.clientY;
+        sliding = false;
+        last = selectedOf(b);
+    }, true);
+
+    window.addEventListener('pointermove', e => {
+        if (!bar || e.pointerId !== id) return;
+        if (!sliding) {
+            const dx = Math.abs(e.clientX - x0);
+            const dy = Math.abs(e.clientY - y0);
+            if (dy > SLIDE_LOCK && dy > dx) { bar = null; return; } // đang cuộn dọc: bỏ
+            if (dx < SLIDE_LOCK) return;
+            sliding = true;
+        }
+        e.hgSwipeClaimed = true; // báo cho cử chỉ vuốt trang: cú này đã có chủ
+        const item = itemAt(bar, e.clientX);
+        if (item && item !== last) {
+            last = item;
+            item.click(); // dùng đúng cú "bấm" của mục đó -> mọi hiệu ứng, tiếng, rung đều chạy
+        }
+    }, true);
+
+    const end = e => {
+        if (!bar || e.pointerId !== id) return;
+        if (sliding) swallowUntil = performance.now() + 350; // chặn cú click đi kèm lúc nhấc tay
+        bar = null;
+        sliding = false;
+    };
+    window.addEventListener('pointerup', end, true);
+    window.addEventListener('pointercancel', end, true);
+
+    window.addEventListener('click', e => {
+        if (e.isTrusted && performance.now() < swallowUntil && e.target.closest?.(BARS)) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    }, true);
+}

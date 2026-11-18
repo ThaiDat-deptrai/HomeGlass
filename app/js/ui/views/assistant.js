@@ -100,9 +100,28 @@ export function mount(root, ctx) {
     });
 
     // ---------- Giọng nói ----------
+    // Nói xong, IM LẶNG khoảng 1,5 giây là app tự gửi lệnh (không phải bấm lại nút).
+    const SILENCE_MS = 1500;
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
     let listening = false;
+    let heard = '';       // câu đang nghe được (chưa chốt)
+    let sent = false;     // câu này đã gửi chưa (để không gửi 2 lần)
+    let silenceTimer = null;
+
+    // Hướng dẫn cho quyền micro "nhớ luôn", không phải hỏi lại mỗi lần mở app
+    const PERMISSION_HELP = 'Chưa được dùng micro. Bấm biểu tượng ổ khóa cạnh địa chỉ web → Quyền → Micro → chọn "Cho phép" (đừng chọn "Chỉ lần này") để lần sau không hỏi lại.';
+
+    function send() {
+        clearTimeout(silenceTimer);
+        if (sent) return;
+        const text = heard.trim();
+        if (!text) return;
+        sent = true;
+        hint.textContent = 'Nhấn để nói';
+        try { recognition.stop(); } catch (e) { /* đã dừng */ }
+        handle(text);
+    }
 
     if (!SpeechRecognition) {
         mic.disabled = true;
@@ -111,48 +130,62 @@ export function mount(root, ctx) {
         recognition = new SpeechRecognition();
         recognition.lang = LANG;
         recognition.interimResults = true;
+        // continuous = false: Android hay bị lặp chữ ở chế độ nghe liên tục. Tự gửi do đồng hồ im lặng bên dưới lo.
+        recognition.continuous = false;
 
         recognition.onstart = () => {
             listening = true;
+            heard = '';
+            sent = false;
             mic.classList.add('is-listening');
-            hint.textContent = 'Đang nghe…';
+            hint.textContent = 'Đang nghe… (ngừng nói là tự gửi)';
         };
         recognition.onend = () => {
             listening = false;
             mic.classList.remove('is-listening');
-            if (hint.textContent === 'Đang nghe…') hint.textContent = 'Nhấn để nói';
+            send(); // trình duyệt tự dừng mà còn câu chưa gửi -> gửi luôn
+            if (hint.textContent.startsWith('Đang nghe') || hint.textContent.startsWith('"')) hint.textContent = 'Nhấn để nói';
         };
         recognition.onerror = e => {
             const messages = {
-                'not-allowed': 'Chưa được cấp quyền micro.',
+                'not-allowed': PERMISSION_HELP,
+                'service-not-allowed': PERMISSION_HELP,
                 'no-speech': 'Không nghe thấy gì. Nhấn để thử lại.',
                 'audio-capture': 'Không tìm thấy micro.',
-                network: 'Lỗi mạng khi nhận giọng nói.'
+                network: 'Lỗi mạng khi nhận giọng nói.',
+                aborted: 'Nhấn để nói'
             };
             hint.textContent = messages[e.error] || 'Có lỗi khi nghe. Nhấn để thử lại.';
         };
         recognition.onresult = e => {
-            const last = e.results[e.results.length - 1];
-            const text = last[0].transcript.trim();
-            if (last.isFinal) {
-                hint.textContent = 'Nhấn để nói';
-                if (text) handle(text);
-            } else {
-                hint.textContent = `"${text}"`;
-            }
+            if (sent) return;
+            // Ghép cả câu từ đầu (continuous: có thể nhiều đoạn)
+            heard = [...e.results].map(r => r[0].transcript).join(' ').replace(/\s+/g, ' ').trim();
+            hint.textContent = `"${heard}"`;
+            clearTimeout(silenceTimer);
+            if (e.results[e.results.length - 1].isFinal) return send(); // trình duyệt đã chốt câu: gửi ngay
+            silenceTimer = setTimeout(send, SILENCE_MS);               // chưa chốt mà im lặng 1,5 giây: tự gửi
         };
 
         mic.addEventListener('click', () => {
             try {
-                if (listening) recognition.stop();
+                if (listening) send();
                 else recognition.start();
             } catch (e) {
                 hint.textContent = 'Không bắt đầu nghe được. Thử lại nhé.';
             }
         });
+
+        // Biết trước quyền micro đang bị chặn -> hướng dẫn luôn, khỏi bấm thử
+        navigator.permissions?.query({ name: 'microphone' }).then(p => {
+            const show = () => { if (p.state === 'denied') hint.textContent = PERMISSION_HELP; };
+            show();
+            p.onchange = show;
+        }).catch(() => { /* trình duyệt không hỗ trợ hỏi quyền: bỏ qua */ });
     }
 
     return () => {
+        clearTimeout(silenceTimer);
         try { recognition?.abort(); } catch (e) { /* bỏ qua */ }
         window.speechSynthesis?.cancel();
     };

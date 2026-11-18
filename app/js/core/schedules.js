@@ -38,6 +38,31 @@ export function triggerMinutes(s, date, location) {
     return (h || 0) * 60 + (m || 0);
 }
 
+/**
+ * GIỜ TẮT (không bắt buộc): s.end = { kind, time, offset } | null
+ * Đến giờ tắt -> tắt lại những thiết bị mà kịch bản đã BẬT (đèn kịch bản tắt sẵn thì để nguyên).
+ * Giờ tắt sớm hơn (hoặc bằng) giờ bật -> tắt vào HÔM SAU (vd bật 18:00, tắt 06:00 sáng mai).
+ */
+export function normalizeEnd(end) {
+    if (!end || !KINDS[end.kind]) return null;
+    return { kind: end.kind, time: end.time || '23:00', offset: Number(end.offset) || 0 };
+}
+
+/** Giờ tắt rơi vào hôm sau so với ngày bật? */
+export function endsNextDay(s, date, location) {
+    return !!s.end && triggerMinutes(s.end, date, location) <= triggerMinutes(s, date, location);
+}
+
+/** Lệnh tắt lúc hết giờ: các thiết bị kịch bản đã bật -> tắt. */
+export const endActionsOf = scene => (scene?.actions || []).filter(a => a.on).map(a => ({ key: a.key, on: false }));
+
+/** "23:00" / "Mặt trời mọc" (+ "hôm sau" nếu qua ngày) */
+export function endText(s, location, date = new Date()) {
+    if (!s.end) return '';
+    const base = s.end.kind === 'time' ? s.end.time : whenText(s.end, location, date);
+    return `${base}${endsNextDay(s, date, location) ? ' hôm sau' : ''}`;
+}
+
 /** Lần chạy tới (Date) tính từ "from", hoặc null nếu lịch đang tắt / không chọn ngày nào. */
 export function nextRun(s, from = new Date(), location) {
     if (!s.enabled || !s.days?.length) return null;
@@ -114,7 +139,8 @@ export function createSchedules(location) {
                 time: s.time || '18:00',
                 offset: Number(s.offset) || 0,
                 days: Array.isArray(s.days) ? [...new Set(s.days)] : ALL_DAYS,
-                enabled: s.enabled !== false
+                enabled: s.enabled !== false,
+                end: normalizeEnd(s.end)
             };
             const i = list.findIndex(x => x.id === item.id);
             if (i >= 0) list[i] = item;
@@ -146,7 +172,8 @@ export function createSchedules(location) {
                     time: s.time || '18:00',
                     offset: Number(s.offset) || 0,
                     days: Array.isArray(s.days) ? s.days : ALL_DAYS,
-                    enabled: s.enabled !== false
+                    enabled: s.enabled !== false,
+                    end: normalizeEnd(s.end)
                 }));
             persist();
         },
@@ -169,8 +196,9 @@ export function createSchedules(location) {
  * CHỈ DÙNG Ở BẢN DEMO: app tự chạy lịch khi đang mở.
  * (Bản thật: ESP trung tâm chạy, kể cả khi tắt app.)
  * runScene(sceneId, schedule) được gọi đúng 1 lần cho mỗi lần đến giờ.
+ * runEnd(sceneId, schedule): đến GIỜ TẮT của lịch.
  */
-export function startDemoRunner(schedules, runScene) {
+export function startDemoRunner(schedules, runScene, runEnd) {
     let fired = {};
     try {
         fired = JSON.parse(localStorage.getItem(FIRED_KEY) || '{}');
@@ -181,14 +209,23 @@ export function startDemoRunner(schedules, runScene) {
         const today = now.toDateString();
         const minuteNow = now.getHours() * 60 + now.getMinutes();
         schedules.list().forEach(s => {
-            if (!s.enabled || !s.days.includes(now.getDay())) return;
-            const at = triggerMinutes(s, now, schedules.location);
-            const mark = `${today}|${at}`;
-            // Đến giờ (cho trễ tối đa 2 phút, phòng khi máy ngủ) và hôm nay chưa chạy
-            if (minuteNow >= at && minuteNow - at <= 2 && fired[s.id] !== mark) {
-                fired[s.id] = mark;
-                try { localStorage.setItem(FIRED_KEY, JSON.stringify(fired)); } catch (e) { /* bỏ qua */ }
-                runScene(s.sceneId, s);
+            if (!s.enabled) return;
+            const due = (at, key, fn) => {
+                const mark = `${today}|${at}`;
+                // Đến giờ (cho trễ tối đa 2 phút, phòng khi máy ngủ) và hôm nay chưa chạy
+                if (minuteNow >= at && minuteNow - at <= 2 && fired[key] !== mark) {
+                    fired[key] = mark;
+                    try { localStorage.setItem(FIRED_KEY, JSON.stringify(fired)); } catch (e) { /* bỏ qua */ }
+                    fn(s.sceneId, s);
+                }
+            };
+            if (s.days.includes(now.getDay())) due(triggerMinutes(s, now, schedules.location), s.id, runScene);
+            if (s.end && runEnd) {
+                // Giờ tắt hôm nay thuộc lần bật hôm nay (cùng ngày) hoặc lần bật hôm qua (qua đêm)
+                const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+                const sameDay = s.days.includes(now.getDay()) && !endsNextDay(s, now, schedules.location);
+                const overnight = s.days.includes(yesterday.getDay()) && endsNextDay(s, yesterday, schedules.location);
+                if (sameDay || overnight) due(triggerMinutes(s.end, now, schedules.location), s.id + ':end', runEnd);
             }
         });
     }

@@ -78,7 +78,8 @@ async function fileToDataUrl(file, maxSize = 1600) {
     return canvas.toDataURL('image/jpeg', 0.82);
 }
 
-export function mount(root, { home, store, settings, toast, logout }) {
+export function mount(root, ctx) {
+    const { home, store, settings, toast, logout } = ctx;
     const isDemo = store.transportName === 'demo';
     function draw() {
         const s = settings.get();
@@ -176,6 +177,31 @@ export function mount(root, { home, store, settings, toast, logout }) {
                 </div>
             </section>
 
+            <h2 class="section-title">Sao lưu & khôi phục</h2>
+            <section class="card group">
+                <div class="row">
+                    <span class="row__label row__label--wrap"><i class="fa-solid fa-box-archive"></i>
+                        <span>Sao lưu toàn bộ<small>Nhà, ESP, kênh, góc servo, kịch bản, lịch hẹn giờ - trong 1 file</small></span></span>
+                    <button class="btn-pill btn-primary" data-act="backup">Tải về</button>
+                </div>
+                <div class="row">
+                    <span class="row__label row__label--wrap"><i class="fa-solid fa-file-import"></i>
+                        <span>Khôi phục từ file<small>Chọn file sao lưu (hoặc home.json) đã tải trước đó</small></span></span>
+                    <label class="btn-pill">Chọn file<input type="file" id="restoreFile" accept=".json,application/json" hidden /></label>
+                </div>
+                <div class="row">
+                    <span class="row__label row__label--wrap"><i class="fa-solid fa-download"></i>
+                        <span>Chỉ tải home.json<small>Cấu hình nhà, để đưa lên GitHub làm bản gốc</small></span></span>
+                    <button class="btn-pill" data-act="export">Tải về</button>
+                </div>
+                ${ctx.homeSource() === 'local' ? html`
+                <div class="row">
+                    <span class="row__label"><i class="fa-solid fa-rotate-left"></i>Bỏ chỉnh sửa, dùng file gốc</span>
+                    <button class="btn-pill btn-danger" data-act="reset-home">Khôi phục</button>
+                </div>` : ''}
+                <p class="group__note">Nên sao lưu mỗi khi thêm/sửa thiết bị. Đổi điện thoại, xóa dữ liệu trình duyệt hay ESP trung tâm hỏng: chỉ cần khôi phục lại file là xong.</p>
+            </section>
+
             <h2 class="section-title">Hệ thống</h2>
             <section class="card group">
                 <div class="row">
@@ -196,6 +222,28 @@ export function mount(root, { home, store, settings, toast, logout }) {
             </section>
             </div></div>
         `);
+    }
+
+    /** Khôi phục từ file sao lưu toàn bộ hoặc home.json thường. */
+    async function restore(input) {
+        const file = input.files[0];
+        input.value = '';
+        if (!file) return;
+        let data;
+        try {
+            data = JSON.parse(await file.text());
+        } catch (err) {
+            return toast('File không đọc được (không phải JSON)', 'error');
+        }
+        const full = data?.type === 'homeglass-backup';
+        const what = full ? 'nhà + kịch bản + lịch hẹn giờ' : 'cấu hình nhà';
+        if (!confirm(`Khôi phục ${what} từ "${file.name}"? Dữ liệu hiện tại sẽ bị thay thế.`)) return;
+        try {
+            ctx.importBackup(data);
+            toast(`Đã khôi phục ${what}`, 'success');
+        } catch (err) {
+            toast(err.problems ? `File lỗi: ${err.problems[0]}` : 'File không đúng định dạng HomeGlass', 'error', 5000);
+        }
     }
 
     /** Lưu cài đặt; báo lỗi dễ hiểu nếu máy hết chỗ (ảnh quá lớn). */
@@ -225,6 +273,27 @@ export function mount(root, { home, store, settings, toast, logout }) {
 
         if (e.target.closest('#errlog')) return openErrorLog(toast);
 
+        // ----- Sao lưu & khôi phục -----
+        const act = e.target.closest('[data-act]')?.dataset.act;
+        if (act === 'backup') {
+            ctx.exportBackup();
+            return toast('Đã tải file sao lưu toàn bộ', 'success');
+        }
+        if (act === 'export') {
+            ctx.exportHome();
+            return toast('Đã tải file home.json', 'success');
+        }
+        if (act === 'reset-home') {
+            if (!confirm('Bỏ mọi chỉnh sửa và dùng lại file cấu hình gốc?')) return;
+            try {
+                ctx.resetHome();
+                toast('Đã dùng lại file gốc', 'info');
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+            return;
+        }
+
         if (e.target.closest('#logout')) {
             if (!isDemo && !confirm('Đăng xuất khỏi nhà trên máy này?')) return;
             return logout();
@@ -247,6 +316,7 @@ export function mount(root, { home, store, settings, toast, logout }) {
 
     root.addEventListener('change', async e => {
         if (e.target.id === 'accentCustom') return draw();
+        if (e.target.id === 'restoreFile') return restore(e.target);
         if (e.target.id !== 'bgFile') return;
         const file = e.target.files[0];
         if (!file) return;

@@ -145,8 +145,10 @@
     position: relative;
     display: inline-grid;
     grid-auto-flow: column;
-    grid-auto-columns: 1fr;
+    /* minmax(0, 1fr): các ô LUÔN rộng bằng nhau, chữ dài cũng không đẩy ô phình ra (thumb mới khớp) */
+    grid-auto-columns: minmax(0, 1fr);
     padding: 4px;
+    touch-action: pan-y; /* vuốt ngang trên thanh = đổi mục (ui/wheel.js), không cuộn trang */
     border-radius: var(--r-pill);
     background: var(--glass);
     border: 1px solid var(--glass-border);
@@ -171,8 +173,26 @@
     font-size: 14px;
     font-weight: 600;
     white-space: nowrap;
+    min-width: 0;
+    overflow: hidden;
     color: var(--text-2);
     transition: color 0.3s var(--ease-ios);
+}
+
+/* Thanh có chữ dài (vd: Giờ cố định | Mặt trời lặn | Mặt trời mọc): màn hình hẹp thì bỏ icon, chữ nhỏ lại */
+.segmented--fit {
+    container-type: inline-size;
+}
+
+@container (max-width: 400px) {
+    .segmented--fit button {
+        padding: 9px 4px;
+        font-size: 13px;
+    }
+
+    .segmented--fit button i {
+        display: none;
+    }
 }
 
 .segmented button[aria-selected="true"] {

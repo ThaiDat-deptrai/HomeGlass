@@ -46,6 +46,7 @@ Lúc mở app: đã đăng nhập thì dùng `mqtt.js`; đã chọn "Xem bản d
 | **Công cụ** | |
 | `tools/esp-gia-lap.html` | ESP giả lập: thử app với máy chủ thật khi chưa có mạch |
 | `tests/mqtt.html` | Bộ test phần lõi (máy chủ MQTT giả, không cần mạng). Mở trên máy: `http://localhost:5501/tests/mqtt.html` |
+| `tests/commands.html` | Bộ test trợ lý: có dấu / không dấu / tiếng Anh / nói lộn thứ tự / nghe nhầm, chạy trên cấu hình nhà thật |
 | **Giao diện** | |
 | `ui/router.js` | Đổi màn hình theo địa chỉ `#/`, `#/scenes`…, trượt trang, **vuốt ngang để đổi tab** |
 | `ui/views/*.js` | 6 màn hình: Nhà, Nhiệt độ, Kịch bản, Trợ lý, Cài đặt, Phòng & thiết bị. `stairs.js` = bảng điều khiển cầu thang (nằm trong trang Nhà) |

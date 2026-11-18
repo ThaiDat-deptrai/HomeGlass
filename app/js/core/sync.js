@@ -54,11 +54,16 @@ export function createSync({ docs, app, scenes, schedules, by = '', storage = lo
             return {
                 location: home.raw.location || null,
                 tz: -new Date().getTimezoneOffset(), // phút lệch giờ so với UTC (Việt Nam: 420)
-                list: schedules.list().map(s => ({
-                    ...s,
-                    // ESP trung tâm không cần biết kịch bản: gửi luôn danh sách lệnh cần chạy
-                    actions: (scenes.get(s.sceneId)?.actions || []).map(a => ({ k: a.key, on: !!a.on }))
-                }))
+                list: schedules.list().map(s => {
+                    const actions = scenes.get(s.sceneId)?.actions || [];
+                    return {
+                        ...s,
+                        // ESP trung tâm không cần biết kịch bản: gửi luôn danh sách lệnh cần chạy
+                        actions: actions.map(a => ({ k: a.key, on: !!a.on })),
+                        // Đến giờ tắt: tắt lại những gì kịch bản đã bật
+                        endActions: s.end ? actions.filter(a => a.on).map(a => ({ k: a.key, on: false })) : []
+                    };
+                })
             };
         }
     };
@@ -102,7 +107,7 @@ export function createSync({ docs, app, scenes, schedules, by = '', storage = lo
         try {
             if (name === 'config') app.applyRemoteHome(doc.data);
             if (name === 'scenes') scenes.importCustom(doc.list);
-            if (name === 'schedules') schedules.importAll((doc.list || []).map(({ actions, ...s }) => s));
+            if (name === 'schedules') schedules.importAll((doc.list || []).map(({ actions, endActions, ...s }) => s));
             revs[name] = rev;
             saveRevs();
             lastSent[name] = JSON.stringify(content[name]());

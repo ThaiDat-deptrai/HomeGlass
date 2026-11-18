@@ -89,8 +89,13 @@ Tất cả đều **giữ lại**. Bản nào có `rev` lớn hơn thì thắng.
 
 ```json
 { "id": "h-1", "kind": "sunset", "offset": 15, "time": "18:00", "days": [1,2,3,4,5],
-  "enabled": true, "sceneId": "c-abc", "actions": [{ "k": "t1-san/den-san", "on": true }] }
+  "enabled": true, "sceneId": "c-abc", "actions": [{ "k": "t1-san/den-san", "on": true }],
+  "end": { "kind": "sunrise", "time": "06:00", "offset": 0 },
+  "endActions": [{ "k": "t1-san/den-san", "on": false }] }
 ```
+
+`end` (có thể `null`) là **giờ tắt**. Đến giờ đó, ESP chạy `endActions`, tức là tắt lại những thiết bị mà kịch bản đã bật.
+Nếu giờ tắt sớm hơn hoặc bằng giờ bật (ví dụ bật lúc mặt trời lặn, tắt lúc mặt trời mọc), thì tắt vào **hôm sau**.
 
 `kind`: `time` (giờ cố định), `sunset` / `sunrise` (mặt trời lặn / mọc, cộng `offset` phút). `days`: 0 = Chủ nhật … 6 = Thứ 7. `tz`: số phút lệch so với giờ UTC.
 

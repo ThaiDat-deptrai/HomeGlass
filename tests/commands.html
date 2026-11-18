@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Test trợ lý · HomeGlass</title>
+    <style>
+        body { font: 14px/1.6 system-ui, sans-serif; background: #0d1220; color: #e8edf8; padding: 20px 16px; max-width: 860px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 4px; }
+        p { color: #9aa6c2; margin: 0 0 16px; }
+        li { padding: 3px 0; }
+        small { color: #9aa6c2; }
+        .pass { color: #22c55e; } .fail { color: #ef4444; font-weight: 600; }
+        #summary { font-size: 16px; font-weight: 700; margin-top: 16px; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Test trợ lý (hiểu câu lệnh)</h1>
+    <p>Dùng đúng cấu hình nhà (config/home.json). Có dấu, không dấu, tiếng Anh, nói lộn thứ tự, nghe nhầm 1 chữ.</p>
+    <ol id="out"></ol>
+    <div id="summary">Đang chạy…</div>
+
+<script type="module">
+    import { parseHome } from '../app/js/core/config.js';
+    import { interpret } from '../app/js/core/commands.js';
+
+    const home = parseHome(await (await fetch('../config/home.json', { cache: 'no-store' })).json());
+    const ctx = {
+        home,
+        store: { countOn: () => 3 },
+        scenes: { list: () => [{ id: 'sleep', name: 'Đi ngủ', actions: [{ key: 't1-san/den-san', on: false }] }, { id: 'home', name: 'Về nhà', actions: [] }] }
+    };
+
+    const out = document.getElementById('out');
+    let passed = 0, failed = 0;
+    // expect: { keys?: [...], on?: bool, scene?: id, ask?: true (hỏi lại / không làm gì), reply?: chữ có trong câu trả lời }
+    function check(text, expect) {
+        const r = interpret(text, ctx);
+        const keys = (r.actions || []).map(a => a.key).sort();
+        let ok = true;
+        if (expect.keys) ok &&= JSON.stringify(keys) === JSON.stringify([...expect.keys].sort());
+        if (expect.count) ok &&= keys.length === expect.count;
+        if (expect.on !== undefined) ok &&= (r.actions || []).length > 0 && r.actions.every(a => a.on === expect.on);
+        if (expect.scene) ok &&= r.scene?.id === expect.scene;
+        if (expect.ask) ok &&= !r.actions;
+        if (expect.reply) ok &&= r.reply.includes(expect.reply);
+        const li = document.createElement('li');
+        li.className = ok ? 'pass' : 'fail';
+        li.innerHTML = `${ok ? '✔' : '✘'} "${text}" <small>→ ${r.reply}${keys.length ? ` [${keys.join(', ')}]` : ''}</small>`;
+        out.appendChild(li);
+        ok ? passed++ : failed++;
+    }
+
+    const t2 = home.allDevices.filter(d => d.floor.id === 't2' && d.type === 'light').map(d => d.key);
+    const lights = home.allDevices.filter(d => d.type === 'light' || d.type === 'stairs').length;
+
+    check('Bật đèn bếp', { keys: ['t1-bep/den-bep'], on: true });
+    check('tat den bep', { keys: ['t1-bep/den-bep'], on: false });
+    check('TẮT ĐÈN BẾP ĐI', { keys: ['t1-bep/den-bep'], on: false });
+    check('mở đèn sân giúp mình', { keys: ['t1-san/den-san'], on: true });
+    check('bếp bật đèn', { keys: ['t1-bep/den-bep'], on: true });
+    check('turn off the kitchen light', { keys: ['t1-bep/den-bep'], on: false });
+    check('turn on garden lights', { keys: ['t1-vuon/den-vuon'], on: true });
+    check('lights off upstairs', { keys: t2, on: false });
+    check('tắt hết đèn tầng 2', { keys: t2, on: false });
+    check('tat tat ca den tang hai', { keys: t2, on: false });
+    check('turn on all lights', { count: lights, on: true });
+    check('bật đèn toilett', { keys: ['t1-phong-tam-2/den-toilet'], on: true });
+    check('bật đèn giường', { keys: ['t2-phong-ngu-2/den-giuong'], on: true });
+    check('bat den cay phong ngu 2', { keys: ['t2-phong-ngu-2/den-cay'], on: true });
+    // "Đèn phòng thờ" là TÊN 1 đèn ở Phòng ngủ 1 -> hiểu là đèn đó; muốn cả phòng Phòng thờ thì nói "tắt phòng thờ"
+    check('tắt đèn phòng thờ', { keys: ['t2-phong-ngu-1/den-phong-tho'], on: false });
+    check('tắt phòng thờ', { keys: ['t2-phong-tho/den-ngu', 't2-phong-tho/den-tho'], on: false });
+    check('bật đèn phòng khách', { ask: true, reply: 'tầng' });
+    check('tắt đèn', { ask: true, reply: 'phòng nào' });
+    check('good night', { scene: 'sleep' });
+    check('đi ngủ thôi', { scene: 'sleep' });
+    check('how many lights are on', { ask: true, reply: '3 đèn' });
+    check('có bao nhiêu đèn đang bật', { ask: true, reply: '3 đèn' });
+    check('bật quạt phòng khách tầng 1', { ask: true, reply: 'quạt' });
+    check('hello', { ask: true, reply: 'Chào' });
+    check('abc xyz', { ask: true });
+
+    const s = document.getElementById('summary');
+    s.textContent = `${passed} đạt, ${failed} lỗi`;
+    s.className = failed ? 'fail' : 'pass';
+    window.TEST_RESULT = { passed, failed };
+</script>
+</body>
+</html>
