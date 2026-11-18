@@ -32,7 +32,7 @@ Vì vậy ESP trung tâm **thay mặt** các ESP phòng gửi trạng thái, nhi
 | `hg/dev/<key>/event` | ESP trung tâm | không | `{"v":1,"kind":"motion","dir":"up"}`: cảm biến thấy người |
 
 **Quy tắc vàng:** app bấm thì gửi `set`. Chỉ khi ESP gửi `state` thì app mới đổi màu. Quá 4 giây không có `state` thì app báo "không phản hồi".
-Có người bấm **công tắc tường** thì ESP cũng gửi `state`, nên app luôn hiện đúng.
+Có người gạt **công tắc tường** bằng tay: servo **không tự biết** chuyện đó, nên app vẫn hiện trạng thái cũ. Muốn app hiện đúng cả lúc gạt tay thì cần gắn thêm cảm biến (quang trở cạnh bóng đèn, hoặc cảm biến dòng). Phần này làm ở bước cảm biến. Khi đó ESP gửi `state` như bình thường. Nút "Bấm công tắc tường" trên trang ESP giả lập là để thử trường hợp đã có cảm biến.
 
 ## 3. Bộ điều khiển ESP
 
@@ -43,6 +43,9 @@ Có người bấm **công tắc tường** thì ESP cũng gửi `state`, nên a
 | `hg/node/<số>/temp` | ESP trung tâm | không | `{"v":1,"t":45.2}` (có thể thêm `"ts"`: giây Unix) |
 | `hg/node/<số>/health` | ESP trung tâm | **có** | `{"v":1,"fw":"0.1.0","up":3600,"rssi":-61,"heap":182000,"reset":"POWERON"}` |
 | `hg/node/<số>/log` | ESP trung tâm | không | `{"v":1,"msg":"Servo kênh 2 không quay"}`: hiện trong **Nhật ký lỗi** của app |
+| `hg/node/<số>/cmd` | app | không | `{"v":1,"cmd":"identify"}`: `identify` (nháy đèn 10 giây để tìm ESP), `reboot`, `resync` (gửi lại trạng thái) |
+
+ESP trung tâm gửi `temp` của **mọi ESP mỗi 10 giây** (app coi mất kết nối sau 30 giây không có tin), còn `health` thì mỗi phút.
 
 ### Bảng kênh (`hg/node/<số>/config`)
 
@@ -52,7 +55,7 @@ Có người bấm **công tắc tường** thì ESP cũng gửi `state`, nên a
   "rev": 1763456789000,
   "devices": [
     { "k": "t1-phong-khach/den-to", "ch": 0, "a": "servo", "on": 45, "off": 135, "rest": 90 },
-    { "k": "t2-phong-ngu-2/den-tu", "ch": 3, "a": "relay" },
+    { "k": "t2-phong-ngu-2/den-tu", "ch": 3, "a": "relay", "lo": 1 },
     { "k": "cau-thang/den", "a": "stairs", "steps": 15, "drv": "mcp23017" }
   ]
 }
@@ -60,6 +63,9 @@ Có người bấm **công tắc tường** thì ESP cũng gửi `state`, nên a
 
 - `k` = key thiết bị, `ch` = kênh (chân), `a` = cách bật tắt.
 - Servo: quay tới `on` / `off` độ, rồi **về `rest`** để tay người vẫn gạt được công tắc.
+- `lo: 1`: relay kích **mức thấp** (LOW = bật). Bật/tắt bằng ô "Relay kích mức thấp" trong app.
+- Kênh 1–8 là chân GPIO trực tiếp, kênh 9–16 đi qua mạch PCA9685. Bảng chân ở [`firmware/include/hg_config.h`](../firmware/include/hg_config.h) và `CHANNEL_PINS` trong `protocol.js`, **hai chỗ phải giống nhau**.
+- ESP trung tâm đánh số bảng bằng **CRC32 nội dung**. Bảng hai bên không khớp thì lệnh bị từ chối và bảng được gửi lại, nên **không bao giờ gạt nhầm đèn** khi vừa sửa cấu hình.
 - Thiết bị chưa gán ESP hoặc chưa chọn kênh thì **không có** trong bảng. App sẽ chặn ngay khi bấm.
 - `rev` tăng mỗi lần sửa. ESP trung tâm chuyển bảng xuống ESP phòng qua ESP-NOW, và ESP phòng **lưu vào flash**.
 - ESP bị xóa khỏi nhà: app gửi chuỗi rỗng (giữ lại) để xóa bảng.
@@ -110,7 +116,18 @@ Nếu giờ tắt sớm hơn hoặc bằng giờ bật (ví dụ bật lúc mặ
 
 Làm thử không cần mạch: mở [`tools/esp-gia-lap.html`](../tools/esp-gia-lap.html), nó làm đúng các việc trên.
 
-## 6. Đổi giao thức về sau
+## 6. ESP trung tâm ↔ ESP phòng (ESP-NOW)
+
+Định dạng gói nằm ở [`firmware/lib/hgcore/hg_msgs.h`](../firmware/lib/hgcore/hg_msgs.h). Tóm tắt:
+
+- Mỗi gói có **chữ ký HMAC-SHA256** bằng khóa chung `HG_NET_KEY`. Gói không đúng chữ ký thì bị vứt, nên ESP lạ không giả được lệnh.
+- **Chống phát lại**: mỗi gói có số thứ tự và giờ chuẩn. Gói trùng, hoặc lệch giờ quá 90 giây, đều bị vứt.
+- Gói gửi riêng được **mã hóa** (khóa ESP-NOW lấy từ `HG_NET_KEY`). Hết chỗ mã hóa (khoảng 7 ESP) thì vẫn chạy, chỉ còn chữ ký.
+- Trung tâm phát **beacon** mỗi 2 giây: kênh WiFi và giờ chuẩn. ESP phòng mất beacon 12 giây thì tự dò lại kênh 1–13.
+- Lệnh: trung tâm gửi `CMD`. ESP phòng trả `ACK` ngay, rồi trả `STATE` khi servo gạt **xong**. Không có ACK thì gửi lại 5 lần (150, 300, 450… ms).
+- ESP phòng gửi **heartbeat** mỗi 10 giây: nhiệt độ, công suất phát, chất lượng sóng, trạng thái mọi kênh, lý do khởi động lại.
+
+## 7. Đổi giao thức về sau
 
 - Chỉ **thêm** trường mới: không cần tăng `v`, bên cũ tự bỏ qua trường lạ.
 - Đổi ý nghĩa / bỏ trường: tăng `v` lên 2. Trong một thời gian, bên mới vẫn phải hiểu cả `v:1`.

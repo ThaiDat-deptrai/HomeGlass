@@ -12,6 +12,7 @@ import { DEVICE_TYPES, deviceIcon, roomIcon, typeLabel } from '../icons.js';
 import * as edit from '../../core/homeData.js';
 import { DRIVERS } from '../../core/stairs.js';
 import { SERVO_DEFAULTS, channelConflicts, deviceOnChannel } from '../../core/config.js';
+import { pinLabel } from '../../core/protocol.js';
 
 const FLOOR_KEY = 'hg.ui.manageFloor';
 
@@ -168,6 +169,11 @@ export function mount(root, ctx) {
                             <input type="number" id="dSteps" min="2" max="32" value="${device?.steps ?? 15}" />
                         </label>
                     </div>
+                    <div class="row" id="dLowField">
+                        <span class="row__label row__label--wrap"><i class="fa-solid fa-arrow-down-short-wide"></i>
+                            <span>Relay kích mức thấp<small>Bật nếu relay chạy NGƯỢC (bấm bật mà relay tắt). Không phải sửa code.</small></span></span>
+                        <button type="button" class="switch" role="switch" id="dLow" aria-checked="${device?.relayLow === true}"></button>
+                    </div>
                     <label class="field" id="dDriverField"><span>Mạch điều khiển các bậc</span>
                         <select id="dDriver">
                             ${Object.entries(DRIVERS).map(([id, d]) => html`<option value="${id}" ${id === (device?.driver || 'mcp23017') ? 'selected' : ''}>${d.label} — ${d.note}</option>`)}
@@ -182,6 +188,7 @@ export function mount(root, ctx) {
                     $('#dChField', el).hidden = stairs;
                     $('#dActField', el).hidden = stairs;
                     $('#dServoField', el).hidden = !servo;
+                    $('#dLowField', el).hidden = stairs || servo;
                     $('#dStepsField', el).hidden = !stairs;
                     $('#dDriverField', el).hidden = !stairs;
                     $('#dChLabel', el).textContent = servo ? 'Kênh servo' : 'Relay số';
@@ -195,6 +202,11 @@ export function mount(root, ctx) {
                 };
                 paintType();
                 el.addEventListener('click', e => {
+                    const low = e.target.closest('#dLow');
+                    if (low) {
+                        low.setAttribute('aria-checked', String(low.getAttribute('aria-checked') !== 'true'));
+                        return;
+                    }
                     const act = e.target.closest('#dAct button');
                     if (act) {
                         actuator = act.dataset.actType;
@@ -247,7 +259,8 @@ export function mount(root, ctx) {
                         steps: type === 'stairs' ? steps : null,
                         driver: type === 'stairs' ? $('#dDriver').value : null,
                         actuator: type === 'stairs' ? null : actuator,
-                        servo
+                        servo,
+                        relayLow: type !== 'stairs' && actuator === 'relay' && $('#dLow').getAttribute('aria-checked') === 'true'
                     };
                     const targetRoom = $('#dRoom').value;
 
@@ -335,12 +348,13 @@ export function mount(root, ctx) {
             <div class="field"><span>Phiếu đấu dây (${list.length} thiết bị)</span>
                 ${list.length ? html`
                 <table class="data-table wiring">
-                    <thead><tr><th>Kênh</th><th>Thiết bị</th><th>Cách</th></tr></thead>
+                    <thead><tr><th>Kênh</th><th>Chân</th><th>Thiết bị</th><th>Cách</th></tr></thead>
                     <tbody>${list.map(d => html`
                         <tr>
                             <td>${d.type === 'stairs' ? 'I2C' : d.ch ?? '–'}</td>
+                            <td>${d.type === 'stairs' ? 'SDA/SCL' : pinLabel(node.board, d.ch)}</td>
                             <td>${d.name}<small>${d.room.name}</small></td>
-                            <td>${d.type === 'stairs' ? `${d.steps} bậc` : d.actuator === 'servo' ? `Servo ${d.servo.on}°/${d.servo.off}°/${d.servo.rest}°` : 'Relay'}</td>
+                            <td>${d.type === 'stairs' ? `${d.steps} bậc` : d.actuator === 'servo' ? `Servo ${d.servo.on}°/${d.servo.off}°/${d.servo.rest}°` : d.relayLow ? 'Relay (mức thấp)' : 'Relay'}</td>
                         </tr>`)}
                     </tbody>
                 </table>` : html`<p class="field__hint">Chưa có thiết bị nào dùng ESP này.</p>`}
@@ -361,6 +375,37 @@ export function mount(root, ctx) {
             </div>` : ''}`;
     }
 
+    const RESET_TEXT = {
+        POWERON: 'mới cấp điện', SW: 'tự khởi động lại', PANIC: 'lỗi phần mềm (đã tự cứu)',
+        WATCHDOG: 'bị treo (đã tự cứu)', BROWNOUT: 'SỤT ÁP - kiểm tra nguồn', OTHER: 'khác'
+    };
+    const uptimeText = s => (s >= 86400 ? `${Math.floor(s / 86400)} ngày` : s >= 3600 ? `${Math.floor(s / 3600)} giờ` : `${Math.max(1, Math.floor(s / 60))} phút`);
+
+    /** Tình trạng ESP (bản thật): online, phiên bản, nhiệt độ, sóng + nút tìm / khởi động lại. */
+    function healthHtml(node) {
+        if (ctx.store.transportName === 'demo') return '';
+        const s = ctx.store.node(node.id);
+        const h = s?.health;
+        const state = s?.online === true ? 'online' : s?.online === false ? 'offline' : 'connecting';
+        const label = { online: 'Đang chạy', offline: 'Mất kết nối', connecting: 'Chưa có tin' }[state];
+        const parts = h ? [
+            h.fw && `bản ${h.fw}`,
+            Number.isFinite(h.up) && `chạy ${uptimeText(h.up)}`,
+            Number.isFinite(h.temp) && `${h.temp.toFixed(1)}°C`,
+            Number.isFinite(h.link) && `sóng ${h.link}%`,
+            Number.isFinite(h.rssi) && `WiFi ${h.rssi} dBm`,
+            h.reset && `lần khởi động trước: ${RESET_TEXT[h.reset] || h.reset}`
+        ].filter(Boolean) : [];
+        return html`
+            <div class="field"><span>Tình trạng</span>
+                <p class="node-health"><span class="conn conn--${state}">${label}</span>${parts.length ? ` · ${parts.join(' · ')}` : ''}</p>
+                <div class="move-row">
+                    <button type="button" class="btn-pill" data-ncmd="identify"><i class="fa-solid fa-lightbulb"></i>Nháy đèn tìm ESP</button>
+                    <button type="button" class="btn-pill" data-ncmd="reboot"><i class="fa-solid fa-rotate-right"></i>Khởi động lại</button>
+                </div>
+            </div>`;
+    }
+
     // ---------- Form ESP ----------
     function nodeSheet(node) {
         openSheet({
@@ -376,9 +421,18 @@ export function mount(root, ctx) {
                         </select>
                     </label>
                     ${node ? html`<p class="field__hint">Số của ESP này là <strong>${node.id}</strong>. Khi nạp code cho mạch, đặt đúng số này.</p>` : ''}
+                    ${node ? healthHtml(node) : ''}
                     ${node ? wiringHtml(node) : ''}
                 `);
                 el.addEventListener('click', e => {
+                    const ncmd = e.target.closest('[data-ncmd]');
+                    if (ncmd) {
+                        const cmd = ncmd.dataset.ncmd;
+                        if (cmd === 'reboot' && !confirm(`Khởi động lại ${node.name}?`)) return;
+                        const sent = ctx.store.nodeCommand(node.id, cmd);
+                        toast(sent ? (cmd === 'identify' ? `${node.name} sẽ nháy đèn nhanh 10 giây` : `Đã gửi lệnh khởi động lại ${node.name}`) : 'Chưa kết nối tới nhà', sent ? 'success' : 'error');
+                        return;
+                    }
                     if (!e.target.closest('#nMove')) return;
                     const to = Number($('#nMoveTo', el).value);
                     const target = home.nodes.get(to);

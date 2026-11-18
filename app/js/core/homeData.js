@@ -82,6 +82,7 @@ function compactDevice(d) {
     if (out.type !== 'stairs') {
         out.actuator = d.actuator === 'servo' ? 'servo' : 'relay';
         if (out.actuator === 'servo' && d.servo) out.servo = { on: d.servo.on, off: d.servo.off, rest: d.servo.rest };
+        if (out.actuator === 'relay' && d.relayLow === true) out.relayLow = true;
     }
     if (out.type === 'stairs') {
         out.steps = d.steps ?? 15;
@@ -126,17 +127,17 @@ export function removeRoom(data, roomId) {
 
 // ---------- Thiết bị ----------
 
-export function addDevice(data, roomId, { name, type = 'light', node = null, ch = null, steps = null, driver = null, actuator = 'servo', servo = null }) {
+export function addDevice(data, roomId, { name, type = 'light', node = null, ch = null, steps = null, driver = null, actuator = 'servo', servo = null, relayLow = false }) {
     const next = clone(data);
     const room = findRoom(next, roomId);
     room.devices = room.devices || [];
     const id = uniqueId(slugify(name), new Set(room.devices.map(d => d.id)));
-    room.devices.push(compactDevice({ id, name: name.trim(), type, node, ch, steps, driver, actuator, servo }));
+    room.devices.push(compactDevice({ id, name: name.trim(), type, node, ch, steps, driver, actuator, servo, relayLow }));
     return { data: next, key: `${roomId}/${id}` };
 }
 
 /** Sửa thiết bị; nếu đổi phòng thì key đổi theo -> trả về key mới. */
-export function updateDevice(data, key, { name, type, roomId, node, ch, steps, driver, actuator, servo }) {
+export function updateDevice(data, key, { name, type, roomId, node, ch, steps, driver, actuator, servo, relayLow }) {
     const next = clone(data);
     const [oldRoomId, deviceId] = splitKey(key);
     const oldRoom = findRoom(next, oldRoomId);
@@ -150,6 +151,7 @@ export function updateDevice(data, key, { name, type, roomId, node, ch, steps, d
     if (driver !== undefined && driver !== null) device.driver = driver;
     if (actuator !== undefined && actuator !== null) device.actuator = actuator;
     if (servo !== undefined && servo !== null) device.servo = servo;
+    if (relayLow !== undefined) device.relayLow = relayLow === true;
 
     let newKey = key;
     if (roomId && roomId !== oldRoomId) {

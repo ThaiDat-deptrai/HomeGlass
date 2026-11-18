@@ -1767,6 +1767,14 @@ a.row__value:hover {
     font-weight: 600;
 }
 
+/* Tình trạng 1 ESP (trang ESP) */
+.node-health {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-2);
+    margin-bottom: 10px;
+}
+
 /* Hẹn giờ: giờ tắt */
 .sched-end {
     padding: 4px 0 6px;

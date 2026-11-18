@@ -31,6 +31,7 @@ export const topics = {
     nodeHealth: id => `${ROOT}/node/${id}/health`,    // sức khỏe: thời gian chạy, sóng WiFi... (giữ lại)
     nodeLog: id => `${ROOT}/node/${id}/log`,          // ESP báo lỗi
     nodeConfig: id => `${ROOT}/node/${id}/config`,    // bảng kênh -> thiết bị của ESP đó (giữ lại)
+    nodeCmd: id => `${ROOT}/node/${id}/cmd`,          // app -> ESP: reboot | identify | resync
 
     // ----- Dữ liệu chung của cả nhà (giữ lại, đồng bộ giữa các điện thoại) -----
     doc: name => `${ROOT}/home/${name}`               // config | scenes | schedules
@@ -137,9 +138,27 @@ export function buildNodeConfigs(home, rev) {
         if (d.ch === null || d.ch === undefined) return;
         const entry = { k: d.key, ch: d.ch, a: d.actuator };
         if (d.actuator === 'servo') Object.assign(entry, { on: d.servo.on, off: d.servo.off, rest: d.servo.rest });
+        if (d.actuator === 'relay' && d.relayLow) entry.lo = 1;
         table.devices.push(entry);
     });
     return out;
+}
+
+/**
+ * Kênh 1..16 -> chân nào trên ESP. PHẢI GIỐNG firmware/include/hg_config.h.
+ * Kênh 9..16 đi qua mạch mở rộng PCA9685 (cổng 0..7).
+ */
+export const CHANNEL_PINS = {
+    'ESP32-C3': [4, 3, 1, 0, 5, 6, 7, 10],
+    'ESP32-S3': [4, 5, 6, 7, 15, 16, 17, 18]
+};
+
+/** "GPIO4" / "PCA9685 cổng 2" / "–" */
+export function pinLabel(board, ch) {
+    if (!Number.isInteger(ch)) return '–';
+    if (ch >= 9 && ch <= 16) return `PCA9685 cổng ${ch - 9}`;
+    const pins = CHANNEL_PINS[board] || CHANNEL_PINS['ESP32-C3'];
+    return ch >= 1 && ch <= 8 ? `GPIO${pins[ch - 1]}` : '–';
 }
 
 /** Thiết bị đã đủ thông tin để ESP điều khiển chưa (có ESP, có kênh)? */

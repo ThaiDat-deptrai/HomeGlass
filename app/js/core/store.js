@@ -182,6 +182,9 @@ export function createStore(initialHome, transport) {
             transport.configure?.(key, patch);
         },
 
+        /** Lệnh cho 1 ESP: 'identify' (nháy đèn) | 'reboot' | 'resync'. Trả về false nếu chưa kết nối. */
+        nodeCommand: (nodeId, cmd) => transport.command?.(nodeId, cmd) ?? false,
+
         /** Chỉ dùng khi thử (demo): giả lập cảm biến thấy người. */
         simulate: (key, detail) => transport.simulate?.(key, detail),
         canSimulate: typeof transport.simulate === 'function',

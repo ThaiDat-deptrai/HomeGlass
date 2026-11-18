@@ -44,20 +44,28 @@ Tài liệu này ghi các nguyên tắc đã làm (✅) và sẽ làm khi viết
 - ✅ **Sai tài khoản** (bị đổi mật khẩu): dừng thử lại, đưa về màn hình đăng nhập.
 - ✅ **Bộ test tự động** `tests/mqtt.html`: 35 kiểm tra (rớt mạng, ESP chết, tin hỏng, đồng bộ 2 điện thoại...). Sửa phần lõi xong là chạy lại.
 
-## 4. Firmware ESP (sẽ làm ⏳)
+## 4. Firmware ESP (bản 0.1 ✅, chờ thử trên mạch)
 
 | Việc | Tác dụng |
 |---|---|
-| **Watchdog** | ESP bị treo → tự khởi động lại sau vài giây. |
-| **Không dùng `delay()` chặn** | Mất WiFi/MQTT vẫn nhận lệnh ESP-NOW, vẫn chạy servo; kết nối lại chạy ngầm, chờ tăng dần. |
-| **Cấu hình lưu trong flash** (có mã kiểm tra) | Mất điện bật lại vẫn nhớ bảng servo/relay. Dữ liệu hỏng → dùng giá trị mặc định an toàn (servo về góc nghỉ). |
-| **Servo về góc nghỉ** sau khi gạt | Không ghì công tắc, không nóng servo, tay vẫn gạt được. |
-| **Hàng đợi servo** + nguồn 5V riêng | Nhiều servo không chạy cùng lúc → không sụt áp làm ESP khởi động lại. |
-| **Báo cáo sức khỏe** mỗi phút | Thời gian chạy, lý do khởi động lại lần trước, sóng WiFi, RAM trống, phiên bản firmware → hiện trong app. |
-| **Gửi lỗi lên MQTT** | ESP gặp lỗi gì cũng ghi vào kênh nhật ký, xem được trong app. |
-| **Cập nhật qua WiFi (OTA) có quay lui** | Nạp code mới mà lỗi → ESP tự quay về bản cũ đang chạy tốt. |
-| **Khôi phục cài đặt gốc** | Giữ nút BOOT 10 giây → xóa cấu hình, chờ nhận lại từ ESP trung tâm. |
-| **ESP trung tâm giữ lịch hẹn** | App tắt, điện thoại hết pin → lịch vẫn chạy (giờ lấy từ Internet, dự phòng DS3231). |
+| ✅ **Watchdog** | ESP bị treo → tự khởi động lại sau 20–30 giây, và báo lên app lý do. |
+| ✅ **Không dùng `delay()` chặn** | Mất WiFi/MQTT vẫn nhận lệnh ESP-NOW, vẫn chạy servo và lịch hẹn; kết nối lại chạy ngầm, chờ tăng dần 1 → 30 giây. |
+| ✅ **WiFi dự phòng** | WiFi chính mất 30 giây → tự đổi sang WiFi thứ 2 (nếu có). |
+| ✅ **Cấu hình lưu trong flash** (có mã CRC) | Mất điện bật lại vẫn nhớ bảng kênh. Dữ liệu hỏng → bỏ, chờ trung tâm gửi lại (không điều khiển bừa). |
+| ✅ **Bảng kênh có số CRC** | Bảng 2 bên lệch nhau → lệnh bị từ chối + gửi lại bảng → không bao giờ gạt nhầm đèn. |
+| ✅ **Lệnh có xác nhận + gửi lại** | Rớt gói → gửi lại tới 5 lần; servo gạt XONG mới báo app. |
+| ✅ **Servo về góc nghỉ rồi ngắt xung** | Không ghì công tắc, không nóng servo, tay vẫn gạt được. |
+| ✅ **Hàng đợi servo** + nguồn 5V riêng | Nhiều servo không chạy cùng lúc → không sụt áp làm ESP khởi động lại. |
+| ✅ **Chống nóng C3** | 80 MHz, không nối WiFi nhà, tự giảm công suất phát; quá 80°C tự hạ mức thấp nhất + báo app. |
+| ✅ **An toàn ESP-NOW** | Chữ ký HMAC + chống phát lại + mã hóa: ESP lạ không giả được lệnh. |
+| ✅ **TLS kiểm tra chứng chỉ** | ESP trung tâm chỉ gửi mật khẩu cho đúng máy chủ HiveMQ thật. |
+| ✅ **Báo cáo sức khỏe** | Nhiệt độ (10 giây/lần), phiên bản, thời gian chạy, lý do khởi động lại, chất lượng sóng → app. |
+| ✅ **Gửi lỗi lên MQTT** | Sụt áp, servo kẹt, chip nóng... hiện trong Nhật ký lỗi của app. |
+| ✅ **Tìm ESP / khởi động lại từ app** | Nút "Nháy đèn tìm ESP" + "Khởi động lại" trong trang mỗi ESP. |
+| ✅ **Khôi phục cài đặt gốc** | Giữ nút BOOT 10 giây → xóa bảng kênh (giữ số ESP), trung tâm tự gửi lại. |
+| ✅ **ESP trung tâm giữ lịch hẹn** | App tắt, điện thoại hết pin → lịch vẫn chạy (giờ lấy từ Internet). |
+| ⏳ **Cập nhật qua WiFi (OTA) có quay lui** | Nạp code mới mà lỗi → ESP tự quay về bản cũ đang chạy tốt. Bước tiếp theo. |
+| ⏳ **DS3231** (tùy chọn) | Mất điện + mất Internet cùng lúc vẫn biết giờ để chạy lịch. |
 
 ## 5. Quy trình khi có sự cố
 

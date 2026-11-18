@@ -118,6 +118,8 @@ export function parseHome(data) {
                     // Cách bật tắt: 'servo' = SG90 gạt công tắc tường (không đụng 220V), 'relay' = rơ-le
                     actuator: d.type === 'stairs' ? null : (d.actuator === 'relay' ? 'relay' : d.actuator === 'servo' ? 'servo' : 'relay'),
                     servo: d.actuator === 'servo' ? { ...SERVO_DEFAULTS, ...d.servo } : null,
+                    // Module relay kích mức THẤP (LOW = bật): nhiều module relay 5V loại phổ biến là kiểu này
+                    relayLow: d.type !== 'stairs' && d.actuator !== 'servo' && d.relayLow === true,
                     ownNode,                   // ESP ghi riêng cho thiết bị (nếu có)
                     node: ownNode ?? room.node, // ESP thực sự điều khiển
                     room,

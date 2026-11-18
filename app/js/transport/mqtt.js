@@ -342,6 +342,11 @@ export function createMqttTransport(auth) {
             return publish(topics.deviceCfg(key), encode(patch));
         },
 
+        /** Lệnh cho 1 ESP (nháy đèn để tìm, khởi động lại...). */
+        command(nodeId, cmd) {
+            return publish(topics.nodeCmd(nodeId), encode({ cmd }));
+        },
+
         sync() { /* cấu hình mới được core/sync.js gửi đi */ },
 
         /** Kênh đồng bộ dữ liệu chung (core/sync.js dùng). */
