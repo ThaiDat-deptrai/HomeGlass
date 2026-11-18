@@ -11,6 +11,8 @@
 // thì store và giao diện KHÔNG phải sửa.
 // =============================================================
 
+import { isAssigned } from './protocol.js';
+
 const CONFIRM_TIMEOUT_MS = 4000;
 const HISTORY_MS = 24 * 3600 * 1000; // giữ lịch sử nhiệt độ 24 giờ
 const MAX_POINTS = 6000;             // tối đa số điểm mỗi ESP
@@ -18,11 +20,15 @@ const MAX_POINTS = 6000;             // tối đa số điểm mỗi ESP
 export function createStore(initialHome, transport) {
     /** key -> { on: true | false | null (chưa rõ), pending: boolean } */
     const states = new Map();
-    /** id ESP -> { history: [{ t, v }], last: { t, v } | null } */
+    /**
+     * id ESP -> { history: [{ t, v }], last: { t, v } | null,
+     *             online: true | false | null (chưa rõ), health: { fw, up, rssi, heap, reset, at } | null }
+     */
     const nodes = new Map();
     const timers = new Map();
     const listeners = new Set();
-    let status = 'connecting'; // demo | connecting | online | offline
+    let status = 'connecting'; // demo | connecting | online | offline | auth (sai tài khoản)
+    let home = initialHome;
 
     const emit = event => listeners.forEach(fn => fn(event));
 
@@ -32,7 +38,8 @@ export function createStore(initialHome, transport) {
     }
 
     /** Cấu hình nhà thay đổi (thêm/xóa thiết bị, ESP): cập nhật danh sách theo dõi. */
-    function syncHome(home) {
+    function syncHome(next) {
+        home = next;
         home.allDevices.forEach(d => {
             // attrs: cài đặt riêng của thiết bị "xịn" (cầu thang: độ sáng, hiệu ứng, hẹn giờ...)
             if (!states.has(d.key)) states.set(d.key, { on: null, pending: false, attrs: {} });
@@ -44,7 +51,7 @@ export function createStore(initialHome, transport) {
             }
         });
         home.nodes.forEach(n => {
-            if (!nodes.has(n.id)) nodes.set(n.id, { history: [], last: null });
+            if (!nodes.has(n.id)) nodes.set(n.id, { history: [], last: null, online: null, health: null });
         });
         [...nodes.keys()].forEach(id => {
             if (!home.nodes.has(id)) nodes.delete(id);
@@ -67,6 +74,13 @@ export function createStore(initialHome, transport) {
         onStatus(next) {
             status = next;
             emit({ type: 'status', status });
+        },
+        /** ESP báo online/offline hoặc gửi báo cáo sức khỏe. */
+        onNodeStatus(nodeId, patch) {
+            const n = nodes.get(nodeId);
+            if (!n) return;
+            Object.assign(n, patch);
+            emit({ type: 'node', nodeId });
         },
         /** Thiết bị báo cài đặt hiện tại của nó (độ sáng, hiệu ứng...). */
         onAttrs(key, attrs) {
@@ -95,14 +109,34 @@ export function createStore(initialHome, transport) {
     });
 
     // ----- Giao diện gọi -----
+    /** Có gửi lệnh được không? Không được thì báo lý do ngay (không bắt người bấm chờ 4 giây). */
+    function blockedReason(key) {
+        if (status === 'demo') return null;
+        if (status !== 'online') return 'offline';
+        const device = home.devices.get(key);
+        if (device && !isAssigned(device)) return 'unassigned';
+        return null;
+    }
+
     function set(key, on) {
         const s = states.get(key);
-        if (!s || s.pending) return;
+        if (!s || s.pending) return false;
+        const reason = blockedReason(key);
+        if (reason) {
+            emit({ type: reason, key });
+            return false;
+        }
         s.pending = true;
         s.target = !!on; // trạng thái đang chờ chuyển sang
         emit({ type: 'device', key });
 
-        transport.send(key, !!on);
+        // Mất kết nối đúng lúc bấm: transport không xếp hàng lệnh -> hủy chờ, báo ngay
+        if (transport.send(key, !!on) === false) {
+            s.pending = false;
+            emit({ type: 'device', key });
+            emit({ type: 'offline', key });
+            return false;
+        }
 
         clearTimer(key);
         timers.set(key, setTimeout(() => {
@@ -110,6 +144,7 @@ export function createStore(initialHome, transport) {
             emit({ type: 'device', key });
             emit({ type: 'timeout', key });
         }, CONFIRM_TIMEOUT_MS));
+        return true;
     }
 
     return {
@@ -117,6 +152,7 @@ export function createStore(initialHome, transport) {
         node: id => nodes.get(id),
         status: () => status,
         transportName: transport.name,
+        transportUser: transport.user || null,
         syncHome,
 
         set,
@@ -129,10 +165,7 @@ export function createStore(initialHome, transport) {
             let sent = 0;
             actions.forEach(({ key, on }) => {
                 const s = states.get(key);
-                if (s && s.on !== !!on) {
-                    set(key, on);
-                    sent++;
-                }
+                if (s && s.on !== !!on && set(key, on)) sent++;
             });
             return sent;
         },

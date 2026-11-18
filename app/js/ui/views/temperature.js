@@ -115,8 +115,10 @@ export function mount(root, { home, store }) {
     });
 
     function statusOf(node) {
-        const last = store.node(node.id)?.last;
-        if (!last || Date.now() - last.t > OFFLINE_MS) return 'off';
+        const n = store.node(node.id);
+        const last = n?.last;
+        // ESP báo mất kết nối (LWT) -> hiện "mất kết nối" ngay, không chờ hết hạn mẫu nhiệt độ
+        if (n?.online === false || !last || Date.now() - last.t > OFFLINE_MS) return 'off';
         if (last.v >= CRIT) return 'crit';
         if (last.v >= WARN) return 'warn';
         return 'good';
@@ -243,7 +245,7 @@ export function mount(root, { home, store }) {
     // Dữ liệu mới về: gom lại, tối đa 1 lần vẽ mỗi giây cho nhẹ máy
     let timer = null;
     const offStore = store.subscribe(event => {
-        if (event.type !== 'telemetry' || timer) return;
+        if ((event.type !== 'telemetry' && event.type !== 'node') || timer) return;
         timer = setTimeout(() => {
             timer = null;
             drawAll();

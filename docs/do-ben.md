@@ -32,13 +32,17 @@ Tài liệu này ghi các nguyên tắc đã làm (✅) và sẽ làm khi viết
 - ✅ **Phiên bản app + tải file theo phiên bản**: điện thoại luôn lấy đủ bộ file mới, không trộn file cũ với mới.
 - ✅ **Lớp tách biệt** (`ui → core → transport`): đổi cách kết nối (demo → MQTT) chỉ sửa 1 dòng, không đụng giao diện.
 
-## 3. Phần lõi MQTT (sẽ làm ⏳)
+## 3. Phần lõi MQTT (đã làm ✅, bản 0.9)
 
-- ⏳ **Tự kết nối lại** khi mất mạng, chờ tăng dần (1s, 2s, 4s… tối đa 30s), không treo app.
-- ⏳ **Trạng thái "giữ lại" (retained)**: mở app là thấy ngay đèn nào đang bật, không cần hỏi lại ESP.
-- ⏳ **Báo ESP mất kết nối** (LWT): ESP chết → app hiện "ESP x mất kết nối" thay vì bấm mãi không ăn.
-- ⏳ **Số phiên bản giao thức** trong mỗi gói tin: sau này đổi định dạng thì bản cũ/mới vẫn hiểu nhau hoặc báo rõ "cần cập nhật".
-- ⏳ **Lệnh có hạn chờ**: bấm mà ESP không xác nhận sau 4s → báo "không phản hồi" (giao diện đã có sẵn).
+- ✅ **Tự kết nối lại** khi mất mạng, chờ tăng dần (1s, 2s, 4s… tối đa 30s), không treo app. Mở lại app / có mạng lại → thử ngay.
+- ✅ **Mất mạng thì không xếp hàng lệnh**: bấm lúc mất mạng → báo ngay. Không có chuyện 5 phút sau đèn tự bật.
+- ✅ **Trạng thái "giữ lại" (retained)**: mở app là thấy ngay đèn nào đang bật, không cần hỏi lại ESP.
+- ✅ **Báo ESP mất kết nối** (LWT): ESP chết → app hiện "… không phản hồi: ESP x đang mất kết nối".
+- ✅ **Số phiên bản giao thức** trong mỗi gói tin: bản cũ/mới vẫn hiểu nhau, hoặc báo rõ "cần cập nhật".
+- ✅ **Tin hỏng / cấu hình hỏng từ máy khác**: bỏ qua + ghi nhật ký, giữ bản đang chạy.
+- ✅ **Lỗi của ESP hiện trong Nhật ký lỗi của app** (kênh `hg/node/<số>/log`).
+- ✅ **Sai tài khoản** (bị đổi mật khẩu): dừng thử lại, đưa về màn hình đăng nhập.
+- ✅ **Bộ test tự động** `tests/mqtt.html`: 35 kiểm tra (rớt mạng, ESP chết, tin hỏng, đồng bộ 2 điện thoại...). Sửa phần lõi xong là chạy lại.
 
 ## 4. Firmware ESP (sẽ làm ⏳)
 
@@ -62,5 +66,6 @@ Tài liệu này ghi các nguyên tắc đã làm (✅) và sẽ làm khi viết
 3. **Muốn chuyển đèn sang ESP khác** → nút *chuyển hết thiết bị* trong trang ESP.
 4. **Cấu hình rối tung** → *Khôi phục từ file sao lưu* (nhớ sao lưu định kỳ, nhất là sau khi thêm/sửa thiết bị).
 5. **Code mới bị lỗi** → quay về phiên bản cũ trên GitHub (mỗi bản ổn định được gắn nhãn `v0.x`).
+6. **GitHub mất / xóa nhầm** → khôi phục từ thư mục sao lưu trên máy (`HomeGlass-SaoLuu`, tự cập nhật sau mỗi commit): [`sao-luu.md`](sao-luu.md).
 
 > ⚠️ Việc gì đụng tới điện 220V: nhờ người lớn hoặc thợ điện. Hệ thống được thiết kế để phần lớn đèn **không cần đụng vào dây 220V** (servo gạt công tắc).

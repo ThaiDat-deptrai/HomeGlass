@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Test phần lõi MQTT · HomeGlass</title>
+    <style>
+        body { font: 14px/1.6 system-ui, sans-serif; background: #0d1220; color: #e8edf8; padding: 20px 16px; max-width: 860px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 4px; }
+        p { color: #9aa6c2; margin: 0 0 16px; }
+        li { padding: 3px 0; }
+        .pass { color: #22c55e; } .fail { color: #ef4444; font-weight: 600; }
+        #summary { font-size: 16px; font-weight: 700; margin-top: 16px; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Test phần lõi MQTT</h1>
+    <p>Chạy app (transport + store + đồng bộ) và ESP giả lập trên một máy chủ MQTT giả trong trình duyệt. Không cần mạng, không đụng dữ liệu thật. Mất khoảng 15 giây.</p>
+    <ol id="out"></ol>
+    <div id="summary">Đang chạy…</div>
+
+<script type="module">
+    import { createFakeBroker } from './fake-broker.js';
+    import { parseHome } from '../app/js/core/config.js';
+    import { createStore } from '../app/js/core/store.js';
+    import { createSync } from '../app/js/core/sync.js';
+    import { createMqttTransport } from '../app/js/transport/mqtt.js';
+    import { buildNodeConfigs, parseTopic, readOn } from '../app/js/core/protocol.js';
+    import { getErrors } from '../app/js/core/errlog.js';
+    import { createEspSim } from '../tools/esp-sim.js';
+
+    // Test ghi nhật ký lỗi (cố tình sai mật khẩu...) -> trả lại nhật ký cũ của app khi xong
+    const savedErrlog = localStorage.getItem('hg.errlog');
+
+    const out = document.getElementById('out');
+    let passed = 0, failed = 0;
+    function check(name, ok, detail = '') {
+        const li = document.createElement('li');
+        li.className = ok ? 'pass' : 'fail';
+        li.textContent = `${ok ? '✔' : '✘'} ${name}${!ok && detail ? ' - ' + detail : ''}`;
+        out.appendChild(li);
+        ok ? passed++ : failed++;
+    }
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    async function until(cond, ms = 3000) {
+        const end = Date.now() + ms;
+        while (Date.now() < end) { if (cond()) return true; await sleep(20); }
+        return cond();
+    }
+    const memory = () => { const m = new Map(); return { getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)) }; };
+
+    const RAW = {
+        home: 'Nhà test',
+        nodes: [{ id: 0, name: 'Trung tâm' }, { id: 1, name: 'ESP 1' }, { id: 2, name: 'ESP 2' }],
+        floors: [{ id: 't1', name: 'Tầng 1', rooms: [{ id: 'r1', name: 'Phòng 1', node: 1, devices: [
+            { id: 'd1', name: 'Đèn 1', type: 'light', actuator: 'servo', ch: 0, servo: { on: 40 } },
+            { id: 'd2', name: 'Đèn 2', type: 'light', actuator: 'relay', ch: 1 },
+            { id: 'd3', name: 'Đèn 3', type: 'light', actuator: 'servo', ch: null }
+        ] }] }]
+    };
+
+    function fakeScenes() {
+        let list = []; const fns = new Set();
+        return {
+            exportCustom: () => list, importCustom(l) { list = l; fns.forEach(f => f()); },
+            get: id => list.find(s => s.id === id), onChange(f) { fns.add(f); },
+            _set(l) { list = l; fns.forEach(f => f()); }
+        };
+    }
+    function fakeSchedules() {
+        let list = []; const fns = new Set();
+        return { list: () => list, importAll(l) { list = l; fns.forEach(f => f()); }, onChange(f) { fns.add(f); } };
+    }
+
+    function phone(name, broker, raw) {
+        let home = parseHome(raw);
+        const transport = createMqttTransport({ url: 'wss://fake/mqtt', username: 'app', password: 'pw' });
+        const store = createStore(home, transport);
+        const events = [];
+        store.subscribe(e => events.push(e));
+        const scenes = fakeScenes();
+        const schedules = fakeSchedules();
+        const remote = [];
+        const sync = createSync({
+            docs: transport.docs, scenes, schedules, by: name, storage: memory(),
+            app: {
+                home: () => home,
+                applyRemoteHome(data) { home = parseHome(data); store.syncHome(home); remote.push(data); }
+            }
+        });
+        return {
+            transport, store, events, scenes, schedules, sync, remote,
+            get home() { return home; },
+            edit(fn) { const r = structuredClone(home.raw); fn(r); home = parseHome(r); store.syncHome(home); sync.configChanged(); }
+        };
+    }
+
+    try {
+        const broker = createFakeBroker({ users: { app: 'pw', esp: 'esp-pw' } });
+        window.Paho = broker.Paho; // transport dùng máy chủ giả thay cho thư viện thật
+
+        // ---------- Giao thức ----------
+        check('Đọc tên kênh thiết bị', JSON.stringify(parseTopic('hg/dev/r1/d1/state')) === JSON.stringify({ kind: 'dev', key: 'r1/d1', what: 'state' }));
+        check('Kênh lạ bị bỏ qua', parseTopic('khac/abc') === null && parseTopic('hg/dev/x') === null);
+        check('Hiểu nhiều kiểu bật/tắt', readOn({ value: 'ON' }) === true && readOn({ on: 0 }) === false && readOn({ value: 'abc' }) === null);
+        const tables = buildNodeConfigs(parseHome(RAW), 5);
+        const t1 = tables.get(1).devices;
+        check('Bảng kênh ESP 1: bỏ đèn chưa có kênh', t1.length === 2 && !t1.some(d => d.k === 'r1/d3'));
+        check('Bảng kênh có góc servo', t1[0].a === 'servo' && t1[0].on === 40 && t1[0].off === 135 && t1[0].rest === 90);
+
+        // ---------- Đăng nhập ----------
+        const bad = createMqttTransport({ url: 'wss://fake/mqtt', username: 'app', password: 'sai' });
+        bad.open();
+        const badResult = await bad.firstConnect.then(() => 'ok', e => e);
+        check('Sai mật khẩu -> báo lỗi tài khoản, không thử lại', badResult?.auth === true);
+        bad.close();
+
+        // ---------- Điện thoại A lần đầu: gửi cấu hình lên máy chủ ----------
+        const A = phone('A', broker, RAW);
+        check('Kết nối thành công', await until(() => A.store.status() === 'online'));
+        check('Gửi cấu hình nhà lên máy chủ (giữ lại)', await until(() => broker.retained.has('hg/home/config')));
+        check('Gửi bảng kênh cho từng ESP', await until(() => broker.retained.has('hg/node/1/config') && broker.retained.has('hg/node/2/config')));
+        check('Bản đầu tiên có rev = 1', JSON.parse(broker.retained.get('hg/home/config')).rev === 1);
+
+        // ---------- ESP giả lập ----------
+        const sim = createEspSim(broker.Paho, { url: 'wss://fake/mqtt', username: 'esp', password: 'esp-pw' });
+        sim.connect();
+        check('ESP nhận bảng kênh', await until(() => sim.tables.get(1)?.length === 2));
+        check('App nhận trạng thái đèn từ ESP', await until(() => A.store.get('r1/d1').on === false && A.store.get('r1/d2').on === false));
+        check('App biết ESP 1 online', await until(() => A.store.node(1).online === true));
+
+        A.store.set('r1/d1', true);
+        check('Bấm -> chờ xác nhận (pending)', A.store.get('r1/d1').pending === true);
+        check('ESP xác nhận -> đèn bật', await until(() => A.store.get('r1/d1').on === true && !A.store.get('r1/d1').pending));
+
+        A.events.length = 0;
+        A.store.set('r1/d3', true);
+        check('Đèn chưa gán kênh -> báo ngay, không gửi', A.events.some(e => e.type === 'unassigned') && !A.store.get('r1/d3').pending);
+
+        sim.wallSwitch('r1/d2');
+        check('Bấm công tắc tường -> app cập nhật', await until(() => A.store.get('r1/d2').on === true));
+
+        // ---------- Tin nhắn hỏng / phiên bản mới ----------
+        broker.publish('hg/dev/r1/d2/state', '{{hỏng');
+        await sleep(30);
+        check('Tin hỏng không làm sập, giữ nguyên trạng thái', A.store.get('r1/d2').on === true);
+        broker.publish('hg/dev/r1/d2/state', '{"v":9,"on":false,"moi":1}');
+        check('Giao thức mới hơn: vẫn đọc được + ghi cảnh báo', await until(() => A.store.get('r1/d2').on === false) && getErrors().some(e => e.where === 'Giao thức'));
+        broker.publish('hg/node/1/log', '{"v":1,"msg":"Servo kênh 0 kẹt"}');
+        check('Lỗi từ ESP vào nhật ký lỗi của app', await until(() => getErrors().some(e => e.where === 'ESP 1' && e.message.includes('kẹt'))));
+
+        // ---------- ESP phòng chết ----------
+        sim.setDead(1, true);
+        check('ESP rút điện -> app biết offline', await until(() => A.store.node(1).online === false));
+        A.events.length = 0;
+        A.store.set('r1/d1', false);
+        check('Bấm đèn của ESP chết -> hết 4 giây báo không phản hồi', await until(() => A.events.some(e => e.type === 'timeout'), 5000));
+        sim.setDead(1, false);
+        check('Cắm lại -> online', await until(() => A.store.node(1).online === true));
+
+        // ---------- App rớt mạng ----------
+        const appClient = [...broker.clients].find(c => c.clientId.startsWith('hg-app'));
+        appClient._drop();
+        check('Rớt mạng -> trạng thái offline', await until(() => A.store.status() === 'offline'));
+        A.events.length = 0;
+        A.store.set('r1/d2', true);
+        check('Bấm lúc mất mạng -> báo ngay, KHÔNG xếp hàng lệnh', A.events.some(e => e.type === 'offline') && !A.store.get('r1/d2').pending);
+        check('Tự kết nối lại', await until(() => A.store.status() === 'online', 4000));
+        check('Kết nối lại vẫn điều khiển được', A.store.set('r1/d2', true) && await until(() => A.store.get('r1/d2').on === true));
+
+        // ---------- Điện thoại B: lấy cấu hình từ máy chủ ----------
+        const rawB = structuredClone(RAW); rawB.home = 'Bản cũ trên máy B';
+        const B = phone('B', broker, rawB);
+        check('Máy mới đăng nhập -> lấy cấu hình trên máy chủ', await until(() => B.remote.length === 1 && B.home.name === 'Nhà test', 4000));
+        check('Máy mới thấy đúng trạng thái đèn', await until(() => B.store.get('r1/d1').on === A.store.get('r1/d1').on));
+
+        // ---------- Sửa trên A -> B tự cập nhật, ESP nhận bảng kênh mới ----------
+        A.edit(r => { r.floors[0].rooms[0].devices[2].ch = 2; });
+        check('Sửa trên máy A -> máy B tự cập nhật', await until(() => B.home.devices.get('r1/d3').ch === 2));
+        check('ESP nhận bảng kênh mới (3 thiết bị)', await until(() => sim.tables.get(1)?.length === 3));
+        A.edit(r => { r.nodes = r.nodes.filter(n => n.id !== 2); });
+        check('Xóa ESP 2 -> xóa bảng kênh của nó trên máy chủ', await until(() => !broker.retained.has('hg/node/2/config')));
+
+        A.scenes._set([{ id: 'c-1', name: 'Đi ngủ', icon: 'fa-moon', actions: [{ key: 'r1/d1', on: false }] }]);
+        check('Kịch bản tự tạo đồng bộ sang máy B', await until(() => B.scenes.exportCustom()[0]?.name === 'Đi ngủ'));
+
+        // ---------- Cấu hình hỏng từ máy khác ----------
+        broker.publish('hg/home/config', JSON.stringify({ v: 1, rev: Date.now() + 99999, data: { floors: 'hỏng' } }), true);
+        await sleep(100);
+        check('Cấu hình hỏng từ máy khác -> bỏ qua, giữ bản đang dùng', B.home.devices.has('r1/d1') && getErrors().some(e => e.where.includes('Nhận "config"')));
+
+        // ---------- ESP trung tâm rớt mạng: di chúc ----------
+        sim.client._drop();
+        check('ESP trung tâm rớt mạng -> máy chủ báo offline (LWT)', await until(() => A.store.node(0).online === false));
+
+        A.transport.close(); B.transport.close(); sim.disconnect();
+    } catch (e) {
+        check('Lỗi không mong đợi', false, e.stack || e.message);
+    } finally {
+        if (savedErrlog === null) localStorage.removeItem('hg.errlog'); else localStorage.setItem('hg.errlog', savedErrlog);
+        const s = document.getElementById('summary');
+        s.textContent = `${passed} đạt, ${failed} lỗi`;
+        s.className = failed ? 'fail' : 'pass';
+        window.TEST_RESULT = { passed, failed };
+    }
+</script>
+</body>
+</html>

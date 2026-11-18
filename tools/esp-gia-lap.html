@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ESP giả lập · HomeGlass</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23f59e0b'/%3E%3Cpath d='M20 18h24v28H20z' fill='none' stroke='white' stroke-width='5'/%3E%3C/svg%3E" />
+    <style>
+        :root {
+            --bg: #0d1220; --card: #161d30; --line: #26304a; --text: #e8edf8; --text-2: #9aa6c2;
+            --accent: #3b82f6; --ok: #22c55e; --bad: #ef4444; --warn: #f59e0b;
+            color-scheme: dark;
+        }
+        * { box-sizing: border-box; margin: 0; }
+        body { background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif; padding: 20px 16px 40px; }
+        main { max-width: 980px; margin: 0 auto; display: grid; gap: 16px; }
+        h1 { font-size: 22px; }
+        h2 { font-size: 15px; margin-bottom: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .06em; }
+        .sub { color: var(--text-2); font-size: 14px; }
+        .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+        .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+        label { display: block; font-size: 13px; color: var(--text-2); margin-top: 10px; }
+        input { width: 100%; margin-top: 4px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: #0f1526; color: var(--text); font-size: 15px; }
+        button { font: inherit; border: 1px solid var(--line); background: #1e2740; color: var(--text); border-radius: 999px; padding: 7px 14px; cursor: pointer; }
+        button:hover { border-color: var(--accent); }
+        button.primary { background: var(--accent); border-color: transparent; font-weight: 600; }
+        button:disabled { opacity: .5; cursor: default; }
+        .row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+        .row:first-child { border-top: 0; }
+        .row .name { flex: 1 1 160px; }
+        .row small { display: block; color: var(--text-2); font-size: 12px; }
+        .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-2); flex: none; }
+        .dot.on { background: #facc15; box-shadow: 0 0 10px #facc15; }
+        .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+        #status { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+        #log { height: 280px; overflow: auto; font: 12.5px/1.6 ui-monospace, Consolas, monospace; background: #0b1020; border-radius: 10px; padding: 10px; }
+        #log .warn { color: var(--warn); } #log .error { color: var(--bad); } #log .ok { color: var(--ok); }
+        .empty { color: var(--text-2); font-size: 14px; }
+        .note { font-size: 13px; color: var(--text-2); margin-top: 10px; }
+    </style>
+</head>
+<body>
+<main>
+    <header>
+        <h1>🧪 ESP giả lập</h1>
+        <p class="sub">Đóng vai ESP trung tâm + các ESP phòng, để thử app HomeGlass với máy chủ MQTT thật khi chưa có mạch.
+            Mở trang này trên máy tính, đăng nhập, rồi bấm đèn trên điện thoại.</p>
+    </header>
+
+    <section class="card" id="loginCard">
+        <h2>Kết nối</h2>
+        <form id="form" autocomplete="on">
+            <label>Tài khoản MQTT (nên dùng tài khoản riêng cho ESP)<input id="user" autocomplete="username" required /></label>
+            <label>Mật khẩu<input id="pass" type="password" autocomplete="current-password" required /></label>
+            <label>Máy chủ<input id="url" /></label>
+            <p style="margin-top:14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+                <button class="primary" id="go" type="submit">Kết nối</button>
+                <button id="stop" type="button" disabled>Ngắt (báo offline)</button>
+                <span id="status"><span class="dot"></span>Chưa kết nối</span>
+            </p>
+        </form>
+        <p class="note">🔒 Mật khẩu không được lưu ở đâu cả. Trang này chỉ dùng để thử, không cần cho hệ thống thật.</p>
+    </section>
+
+    <div class="grid">
+        <section class="card">
+            <h2>Các ESP</h2>
+            <div id="nodes"><p class="empty">Chưa nhận bảng kênh nào. App cần đăng nhập ít nhất 1 lần để gửi cấu hình lên.</p></div>
+        </section>
+        <section class="card">
+            <h2>Thiết bị</h2>
+            <div id="devices"><p class="empty">Chỉ thiết bị đã gán ESP + kênh mới có ở đây.</p></div>
+        </section>
+    </div>
+
+    <section class="card">
+        <h2>Nhật ký</h2>
+        <div id="log"></div>
+    </section>
+</main>
+
+<script type="module">
+    import { loadPaho, DEFAULT_BROKER } from '../app/js/transport/mqtt.js';
+    import { createEspSim } from './esp-sim.js';
+
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    $('url').value = DEFAULT_BROKER;
+
+    let sim = null;
+
+    function log(text, kind = '') {
+        const line = document.createElement('div');
+        line.className = kind;
+        line.textContent = `[${new Date().toLocaleTimeString('vi-VN')}] ${text}`;
+        $('log').prepend(line);
+    }
+
+    function draw() {
+        const on = sim?.isConnected();
+        $('status').innerHTML = `<span class="dot ${on ? 'ok' : 'bad'}"></span>${on ? 'Đang chạy' : 'Chưa kết nối'}`;
+        $('go').disabled = !!on;
+        $('stop').disabled = !on;
+        if (!sim) return;
+
+        const ids = [...sim.tables.keys()].sort((a, b) => a - b);
+        $('nodes').innerHTML = ids.length ? ids.map(id => `
+            <div class="row">
+                <span class="dot ${sim.isDead(id) ? 'bad' : 'ok'}"></span>
+                <span class="name">ESP ${id}${id === 0 ? ' (trung tâm)' : ''}<small>${sim.tables.get(id).length} thiết bị</small></span>
+                ${id === 0 ? '<small>Muốn giả lập trung tâm rớt mạng: bấm "Ngắt"</small>'
+                    : `<button data-dead="${id}">${sim.isDead(id) ? 'Cắm điện lại' : 'Rút điện'}</button>`}
+            </div>`).join('') : '<p class="empty">Chưa nhận bảng kênh nào.</p>';
+
+        const states = sim.states();
+        const devices = ids.flatMap(id => sim.tables.get(id).map(d => ({ ...d, node: id })));
+        $('devices').innerHTML = devices.length ? devices.map(d => `
+            <div class="row">
+                <span class="dot ${states[d.k] ? 'on' : ''}"></span>
+                <span class="name">${esc(d.k)}<small>ESP ${d.node}${d.ch !== undefined ? ` · kênh ${d.ch}` : ''} · ${esc(d.a)}${d.a === 'servo' ? ` (${d.on}° / ${d.off}° / nghỉ ${d.rest}°)` : ''}</small></span>
+                <button data-wall="${esc(d.k)}" ${sim.isDead(d.node) ? 'disabled' : ''}>Bấm công tắc tường</button>
+            </div>`).join('') : '<p class="empty">Chỉ thiết bị đã gán ESP + kênh mới có ở đây.</p>';
+    }
+
+    $('form').addEventListener('submit', async e => {
+        e.preventDefault();
+        if (sim?.isConnected()) return;
+        let Paho;
+        try {
+            Paho = await loadPaho();
+        } catch (err) {
+            return log(err.message, 'error');
+        }
+        sim?.disconnect();
+        sim = createEspSim(Paho, {
+            url: $('url').value.trim() || DEFAULT_BROKER,
+            username: $('user').value.trim(),
+            password: $('pass').value,
+            log,
+            onChange: draw,
+            storage: localStorage
+        });
+        log('Đang kết nối…');
+        sim.connect();
+    });
+
+    $('stop').addEventListener('click', () => { sim?.disconnect(); log('Đã ngắt (ESP trung tâm báo offline)', 'warn'); });
+
+    document.addEventListener('click', e => {
+        const dead = e.target.closest('[data-dead]');
+        if (dead) sim.setDead(Number(dead.dataset.dead), !sim.isDead(Number(dead.dataset.dead)));
+        const wall = e.target.closest('[data-wall]');
+        if (wall) sim.wallSwitch(wall.dataset.wall);
+    });
+
+    draw();
+</script>
+</body>
+</html>

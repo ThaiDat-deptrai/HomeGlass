@@ -18,6 +18,10 @@ import { createSettings } from './core/settings.js';
 import { createScenes } from './core/scenes.js';
 import { createSchedules, startDemoRunner } from './core/schedules.js';
 import { createDemoTransport } from './transport/demo.js';
+import { createMqttTransport } from './transport/mqtt.js';
+import { getAuth, clearAuth, getMode, setMode, setLoginNotice } from './core/auth.js';
+import { createSync } from './core/sync.js';
+import { showLogin } from './ui/views/login.js';
 import { createRouter } from './ui/router.js';
 import { toast } from './ui/toast.js';
 import { enablePress } from './ui/press.js';
@@ -61,6 +65,31 @@ function showConfigError(app, problems) {
 
 const LAST_FILE_KEY = 'hg.home.lastFile';
 
+/**
+ * Chọn cách kết nối:
+ *   - đã đăng nhập  -> MQTT (vào thẳng app; mất mạng thì tự kết nối lại)
+ *   - đã chọn demo  -> ngôi nhà ảo
+ *   - chưa chọn     -> màn hình đăng nhập
+ */
+async function pickTransport(app, home) {
+    const auth = getAuth();
+    if (auth) return createMqttTransport(auth);
+    if (getMode() === 'demo') return createDemoTransport(home);
+    document.documentElement.classList.add('is-login');
+    const transport = await showLogin(app, { createDemo: () => createDemoTransport(home) });
+    document.documentElement.classList.remove('is-login');
+    return transport;
+}
+
+/** Thông báo giống nhau dồn dập (vd bấm kịch bản 6 đèn lúc mất mạng) -> chỉ hiện 1 lần. */
+const lastToast = new Map();
+function toastOnce(id, text, kind = 'error', ms = 3000) {
+    const now = Date.now();
+    if (now - (lastToast.get(id) || 0) < ms) return;
+    lastToast.set(id, now);
+    toast(text, kind);
+}
+
 async function start() {
     const app = document.getElementById('app');
     captureGlobalErrors();
@@ -102,7 +131,8 @@ async function start() {
         }
     }
 
-    const transport = createDemoTransport(home);
+    const transport = await pickTransport(app, home);
+    const startedAt = Date.now();
     const store = createStore(home, transport);
     const scenes = createScenes(home);
     scenes.watch(store); // kịch bản đang bật sẽ tự "tắt" khi thiết bị bị đổi khác đi
@@ -128,11 +158,27 @@ async function start() {
         if (e.target.matches?.(TYPING)) document.documentElement.classList.remove('is-typing');
     });
 
-    // Thiết bị không xác nhận trong thời gian cho phép
+    // Báo lỗi điều khiển bằng lời dễ hiểu
     store.subscribe(event => {
-        if (event.type === 'timeout') {
-            const device = ctx.home.devices.get(event.key);
-            if (device) toast(`${device.name} không phản hồi`, 'error');
+        const device = event.key ? ctx.home.devices.get(event.key) : null;
+        if (event.type === 'timeout' && device) {
+            const node = ctx.home.nodes.get(device.node);
+            const nodeDown = node && store.node(node.id)?.online === false;
+            toast(nodeDown ? `${device.name} không phản hồi: ${node.name} đang mất kết nối` : `${device.name} không phản hồi`, 'error', 4000);
+        }
+        if (event.type === 'offline') {
+            toastOnce('offline', store.status() === 'connecting' ? 'Đang kết nối tới nhà, thử lại sau giây lát…' : 'Chưa kết nối được tới nhà. App đang tự kết nối lại…');
+        }
+        if (event.type === 'unassigned' && device) {
+            toastOnce('unassigned:' + device.key, `${device.name} chưa gán ESP / kênh (Cài đặt → Phòng & thiết bị)`, 'error', 2000);
+        }
+        // Tài khoản bị đổi mật khẩu / bị xóa trên HiveMQ -> đăng nhập lại
+        if (event.type === 'status' && event.status === 'auth') {
+            transport.close?.();
+            clearAuth();
+            setMode(null);
+            setLoginNotice('Tài khoản hoặc mật khẩu không còn đúng. Đăng nhập lại nhé.');
+            location.reload();
         }
     });
 
@@ -161,6 +207,7 @@ async function start() {
             writeLocal(data);
             source = 'local';
             applyHome(next);
+            sync?.configChanged(); // gửi cho các điện thoại khác + ESP
         },
         /** Bỏ mọi chỉnh sửa, dùng lại file config/home.json. */
         resetHome() {
@@ -168,6 +215,15 @@ async function start() {
             clearLocal();
             source = 'file';
             applyHome(parseHome(fileData));
+            sync?.configChanged();
+        },
+
+        /** Đăng xuất (bản thật) hoặc rời bản demo -> về màn hình đăng nhập. */
+        logout() {
+            transport.close?.();
+            clearAuth();
+            setMode(null);
+            location.reload();
         },
         exportHome: () => downloadJson(ctx.home.raw),
 
@@ -199,6 +255,33 @@ async function start() {
             return isBackup ? 'full' : 'home';
         }
     };
+
+    // ----- Đồng bộ giữa các điện thoại + gửi bảng kênh xuống ESP (chỉ bản thật) -----
+    const REMOTE_TEXT = {
+        config: 'Cấu hình nhà vừa được cập nhật',
+        scenes: 'Kịch bản vừa được cập nhật',
+        schedules: 'Lịch hẹn giờ vừa được cập nhật'
+    };
+    const sync = transport.docs ? createSync({
+        docs: transport.docs,
+        scenes,
+        schedules,
+        by: transport.user || '',
+        app: {
+            home: () => ctx.home,
+            /** Cấu hình từ máy khác: kiểm tra kỹ, sai thì ném lỗi (sync bỏ qua, giữ bản đang dùng). */
+            applyRemoteHome(data) {
+                const next = parseHome(data);
+                writeLocal(data);
+                source = 'local';
+                applyHome(next);
+            }
+        },
+        onRemote(name, by) {
+            if (Date.now() - startedAt < 5000) return; // lúc mới mở app: lặng lẽ lấy bản mới nhất
+            toast(`${REMOTE_TEXT[name]}${by ? ` (bởi ${by})` : ''}`, 'success', 3500);
+        }
+    }) : null;
 
     const router = createRouter({
         root: app,

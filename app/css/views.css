@@ -1217,6 +1217,8 @@
 
 .field input[type="text"],
 .field input[type="number"],
+.field input[type="password"],
+.field input[type="url"],
 .field select,
 .ask input {
     width: 100%;
@@ -1735,9 +1737,133 @@ a.row__value:hover {
     color: var(--accent);
 }
 
+.conn::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 8px;
+    border-radius: 50%;
+    background: var(--text-3);
+    vertical-align: 1px;
+}
+
+.conn--online::before { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.conn--demo::before { background: var(--accent); }
+.conn--offline::before,
+.conn--auth::before { background: var(--bad); }
+.conn--connecting::before { background: #f59e0b; }
+
 .row__value.is-bad {
     color: var(--bad);
     font-weight: 600;
+}
+
+/* ================= ĐĂNG NHẬP ================= */
+html.is-login .tabbar {
+    display: none;
+}
+
+.login {
+    min-height: calc(100dvh - 120px);
+    display: grid;
+    place-items: center;
+    padding: var(--s-5) 0;
+}
+
+.login__card {
+    width: 100%;
+    max-width: 400px;
+    padding: var(--s-6) var(--s-5) var(--s-5);
+}
+
+.login__logo {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    margin-bottom: 14px;
+    border-radius: 18px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 24px;
+    box-shadow: 0 10px 30px var(--accent-soft);
+}
+
+.login__card h1 {
+    font-size: 26px;
+    letter-spacing: -0.02em;
+}
+
+.login__sub {
+    margin-top: 6px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-2);
+}
+
+.login__more {
+    margin-top: var(--s-4);
+    font-size: 13.5px;
+    color: var(--text-3);
+}
+
+.login__more summary {
+    cursor: pointer;
+    width: fit-content;
+}
+
+.login__more .field {
+    margin-top: 10px;
+}
+
+.login__remember {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: var(--s-4);
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.login__remember input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+}
+
+.login__error {
+    min-height: 20px;
+    margin-top: 12px;
+    font-size: 14px;
+    color: var(--bad);
+}
+
+.login__go,
+.login__demo {
+    width: 100%;
+    margin-top: 10px;
+    padding: 13px 16px;
+    font-size: 15px;
+}
+
+.login__go:disabled {
+    opacity: 0.7;
+    cursor: progress;
+}
+
+.login__note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: var(--s-4);
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-3);
+}
+
+.login__note i {
+    margin-top: 3px;
 }
 
 /* Nhật ký lỗi */

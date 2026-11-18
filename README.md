@@ -69,7 +69,8 @@ Mỗi phòng có `node`: số thứ tự con ESP32-C3 điều khiển phòng đ�
 | 1a++. Lịch & servo | Hẹn giờ tự chạy kịch bản (giờ cố định / mặt trời lặn, mọc). Đèn bật tắt bằng servo SG90 gạt công tắc: [`docs/cong-tac-servo.md`](docs/cong-tac-servo.md) | ✅ Bản 0.6 (giao diện) |
 | 1a+++. Độ bền | Nhật ký lỗi, màn hình lỗi không làm sập app, mất mạng vẫn mở, khôi phục từ file sao lưu: [`docs/do-ben.md`](docs/do-ben.md) | ✅ Bản 0.8 |
 | 1a+. Cầu thang | Khu "Cầu thang" giữa 2 tầng: hiệu ứng, cảm biến, hẹn giờ, ban đêm. Phần cứng: [`docs/cau-thang.md`](docs/cau-thang.md) | ✅ Bản 0.4 (giao diện) |
-| 1b. Nền móng | Kết nối MQTT thật + đăng nhập + Master + 1 node mẫu | ⏳ Tiếp theo |
+| 1b. Phần lõi | Kết nối MQTT thật, đăng nhập, đồng bộ giữa các điện thoại, bảng kênh cho ESP, ESP giả lập. Giao thức: [`docs/giao-thuc.md`](docs/giao-thuc.md) | ✅ Bản 0.9 |
+| 1c. Firmware | ESP trung tâm (S3) + 1 ESP phòng mẫu (C3) theo đúng giao thức | ⏳ Tiếp theo |
 | 2. Nhân rộng | Lắp từng phòng: tầng 2 trước, rồi tầng 1 | ⬜ |
 | 3. Nâng cao | Kịch bản, hẹn giờ, cảm biến, giọng nói, chạy khi mất mạng | ⬜ |
 

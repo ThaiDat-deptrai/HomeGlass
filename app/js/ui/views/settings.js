@@ -63,7 +63,8 @@ const CONNECTION_TEXT = {
     demo: 'Bản demo (chưa nối thiết bị thật)',
     connecting: 'Đang kết nối…',
     online: 'Đã kết nối',
-    offline: 'Mất kết nối'
+    offline: 'Mất kết nối, đang thử lại…',
+    auth: 'Sai tài khoản'
 };
 
 /** Thu nhỏ ảnh người dùng chọn để lưu vừa trong máy (tối đa 1600px, JPEG). */
@@ -77,7 +78,8 @@ async function fileToDataUrl(file, maxSize = 1600) {
     return canvas.toDataURL('image/jpeg', 0.82);
 }
 
-export function mount(root, { home, store, settings, toast }) {
+export function mount(root, { home, store, settings, toast, logout }) {
+    const isDemo = store.transportName === 'demo';
     function draw() {
         const s = settings.get();
         const dark = settings.isDark();
@@ -166,7 +168,11 @@ export function mount(root, { home, store, settings, toast }) {
                 </a>
                 <div class="row">
                     <span class="row__label"><i class="fa-solid fa-wifi"></i>Kết nối</span>
-                    <span class="row__value">${CONNECTION_TEXT[store.status()] || store.status()}</span>
+                    <span class="row__value conn conn--${store.status()}">${CONNECTION_TEXT[store.status()] || store.status()}</span>
+                </div>
+                <div class="row">
+                    <span class="row__label"><i class="fa-solid ${isDemo ? 'fa-flask' : 'fa-user'}"></i>${isDemo ? 'Đang xem bản demo' : store.transportUser}</span>
+                    <button class="btn-pill ${isDemo ? 'btn-primary' : ''}" id="logout">${isDemo ? 'Đăng nhập nhà thật' : 'Đăng xuất'}</button>
                 </div>
             </section>
 
@@ -218,6 +224,11 @@ export function mount(root, { home, store, settings, toast }) {
         if (sw) return save({ [sw.dataset.key]: sw.getAttribute('aria-checked') !== 'true' });
 
         if (e.target.closest('#errlog')) return openErrorLog(toast);
+
+        if (e.target.closest('#logout')) {
+            if (!isDemo && !confirm('Đăng xuất khỏi nhà trên máy này?')) return;
+            return logout();
+        }
 
         if (e.target.closest('#reset')) {
             if (!confirm('Đưa giao diện về mặc định?')) return;
