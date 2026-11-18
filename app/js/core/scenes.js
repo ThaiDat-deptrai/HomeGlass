@@ -138,6 +138,13 @@ export function createScenes(initialHome) {
             persist();
         },
 
+        /** Sao lưu / khôi phục: danh sách kịch bản tự tạo. */
+        exportCustom: () => custom.map(({ preset, ...s }) => s),
+        importCustom(list) {
+            custom = clean(Array.isArray(list) ? list : []);
+            persist();
+        },
+
         /** Thiết bị đổi phòng -> mã đổi: cập nhật các kịch bản đang dùng nó. */
         renameKey(oldKey, newKey) {
             if (oldKey === newKey) return;

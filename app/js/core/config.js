@@ -14,6 +14,33 @@ const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
  */
 export const SERVO_DEFAULTS = { on: 45, off: 135, rest: 90 };
 
+/**
+ * Tìm thiết bị dùng TRÙNG KÊNH trên cùng 1 ESP (2 đèn chung 1 chân -> bấm 1 cái gạt luôn cái kia).
+ * Trả về Map: key thiết bị -> thiết bị đang trùng với nó.
+ */
+export function channelConflicts(home) {
+    const seen = new Map();
+    const out = new Map();
+    home.allDevices.forEach(d => {
+        if (d.type === 'stairs' || d.node === null || d.node === undefined || d.ch === null || d.ch === undefined) return;
+        const slot = `${d.node}:${d.ch}`;
+        const other = seen.get(slot);
+        if (other) {
+            out.set(d.key, other);
+            if (!out.has(other.key)) out.set(other.key, d);
+        } else {
+            seen.set(slot, d);
+        }
+    });
+    return out;
+}
+
+/** Thiết bị nào (ngoài "exceptKey") đang dùng kênh ch của ESP node? */
+export function deviceOnChannel(home, node, ch, exceptKey) {
+    if (node === null || node === undefined || ch === null || ch === undefined) return null;
+    return home.allDevices.find(d => d.key !== exceptKey && d.type !== 'stairs' && d.node === node && d.ch === ch) || null;
+}
+
 /** Đèn cầu thang cũng tính là "đèn" (đếm số đèn bật, kịch bản tắt hết đèn...). */
 export const isLight = device => device.type === 'light' || device.type === 'stairs';
 

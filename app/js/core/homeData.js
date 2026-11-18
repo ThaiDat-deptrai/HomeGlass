@@ -192,6 +192,19 @@ export function updateNode(data, id, { name, board }) {
     return next;
 }
 
+/**
+ * Chuyển TẤT CẢ phòng/thiết bị đang dùng ESP "from" sang ESP "to"
+ * (vd: ESP 2 hỏng, tạm cắm dây sang ESP 5). Kênh giữ nguyên.
+ */
+export function moveNodeDevices(data, from, to) {
+    const next = clone(data);
+    allRooms(next).forEach(r => {
+        if (r.node === from) r.node = to;
+        (r.devices || []).forEach(d => { if (d.node === from) d.node = to; });
+    });
+    return next;
+}
+
 /** Xóa ESP: phòng/thiết bị đang gán vào nó chuyển về "chưa gán". */
 export function removeNode(data, id) {
     const next = clone(data);

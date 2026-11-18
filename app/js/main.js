@@ -142,7 +142,35 @@ async function start() {
             source = 'file';
             applyHome(parseHome(fileData));
         },
-        exportHome: () => downloadJson(ctx.home.raw)
+        exportHome: () => downloadJson(ctx.home.raw),
+
+        /** Sao lưu TOÀN BỘ: cấu hình nhà + kịch bản tự tạo + lịch hẹn giờ, trong 1 file. */
+        exportBackup() {
+            const d = new Date();
+            const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            downloadJson({
+                type: 'homeglass-backup',
+                version: 1,
+                exportedAt: d.toISOString(),
+                home: ctx.home.raw,
+                scenes: scenes.exportCustom(),
+                schedules: schedules.list()
+            }, `homeglass-sao-luu-${stamp}.json`);
+        },
+
+        /**
+         * Khôi phục từ file: nhận cả file sao lưu toàn bộ lẫn file home.json thường.
+         * Ném lỗi nếu file sai (màn hình tự báo).
+         */
+        importBackup(obj) {
+            const isBackup = obj && obj.type === 'homeglass-backup';
+            ctx.saveHome(isBackup ? obj.home : obj);
+            if (isBackup) {
+                scenes.importCustom(obj.scenes);
+                schedules.importAll(obj.schedules);
+            }
+            return isBackup ? 'full' : 'home';
+        }
     };
 
     const router = createRouter({

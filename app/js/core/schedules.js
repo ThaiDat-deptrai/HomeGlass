@@ -135,6 +135,22 @@ export function createSchedules(location) {
             persist();
         },
 
+        /** Khôi phục từ bản sao lưu: thay toàn bộ lịch. */
+        importAll(items) {
+            list = (Array.isArray(items) ? items : [])
+                .filter(s => s && s.id && s.sceneId)
+                .map(s => ({
+                    id: s.id,
+                    sceneId: s.sceneId,
+                    kind: KINDS[s.kind] ? s.kind : 'time',
+                    time: s.time || '18:00',
+                    offset: Number(s.offset) || 0,
+                    days: Array.isArray(s.days) ? s.days : ALL_DAYS,
+                    enabled: s.enabled !== false
+                }));
+            persist();
+        },
+
         /** Kịch bản bị xóa -> xóa luôn lịch của nó. */
         removeScene(sceneId) {
             const before = list.length;

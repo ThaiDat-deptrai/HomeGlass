@@ -11,7 +11,7 @@ import { openSheet } from '../sheet.js';
 import { DEVICE_TYPES, deviceIcon, roomIcon, typeLabel } from '../icons.js';
 import * as edit from '../../core/homeData.js';
 import { DRIVERS } from '../../core/stairs.js';
-import { SERVO_DEFAULTS } from '../../core/config.js';
+import { SERVO_DEFAULTS, channelConflicts, deviceOnChannel } from '../../core/config.js';
 
 const FLOOR_KEY = 'hg.ui.manageFloor';
 
@@ -20,6 +20,11 @@ const nodeText = (home, id) => (id === null || id === undefined ? 'Chưa gán ES
 export function mount(root, ctx) {
     const { home, toast } = ctx;
     let floorIndex = Math.min(Number(sessionStorage.getItem(FLOOR_KEY)) || 0, home.floors.length - 1);
+
+    /** Các thiết bị mà ESP này thực sự điều khiển (kể cả "theo phòng"), xếp theo kênh. */
+    const devicesOf = id => home.allDevices
+        .filter(d => d.node === id)
+        .sort((a, b) => (a.ch ?? 99) - (b.ch ?? 99));
 
     /** Lưu cấu hình mới; báo lỗi dễ hiểu nếu có gì sai. */
     function save(data, message) {
@@ -36,6 +41,7 @@ export function mount(root, ctx) {
     // ---------- Vẽ ----------
     function draw() {
         const floor = home.floors[floorIndex];
+        const conflicts = channelConflicts(home);
         render(root, html`
             <header class="page-head">
                 <a class="back-link" href="#/settings"><i class="fa-solid fa-chevron-left"></i>Cài đặt</a>
@@ -67,6 +73,7 @@ export function mount(root, ctx) {
                                         <span class="manage-item__text">
                                             <strong>${d.name}</strong>
                                             <small>${typeLabel(d)}${d.actuator === 'servo' ? ' · Servo' : d.actuator === 'relay' ? ' · Relay' : ''} · ${d.node === null ? 'Chưa gán ESP' : nodeText(home, d.node) + (d.type === 'stairs' ? ` · ${d.steps} bậc` : d.ch ? ` · kênh ${d.ch}` : ' · chưa chọn kênh')}</small>
+                                            ${conflicts.has(d.key) ? html`<small class="warn"><i class="fa-solid fa-triangle-exclamation"></i>Trùng kênh với ${conflicts.get(d.key).name} (${conflicts.get(d.key).room.name})</small>` : ''}
                                         </span>
                                         <i class="fa-solid fa-chevron-right manage-item__go"></i>
                                     </button>
@@ -81,21 +88,35 @@ export function mount(root, ctx) {
 
             <h2 class="section-title">Bộ điều khiển ESP</h2>
             <section class="card group">
-                ${[...home.nodes.values()].map(n => html`
-                    <div class="row">
+                ${[...home.nodes.values()].map(n => {
+                    const count = devicesOf(n.id).length;
+                    return html`
+                    <button class="row row--link row--btn" data-act="edit-node" data-node="${n.id}">
                         <span class="row__label"><i class="fa-solid ${n.id === 0 ? 'fa-server' : 'fa-microchip'}"></i>${n.name}</span>
-                        <span class="row__value">${n.board} · số ${n.id}</span>
-                        <button class="icon-btn" data-act="edit-node" data-node="${n.id}" aria-label="Sửa ${n.name}"><i class="fa-solid fa-pen"></i></button>
-                    </div>`)}
+                        <span class="row__value">số ${n.id} · ${count ? `${count} thiết bị` : 'chưa gắn gì'}</span>
+                        <i class="fa-solid fa-chevron-right row__go"></i>
+                    </button>`;
+                })}
                 <div class="row">
                     <button class="manage-add" data-act="add-node"><i class="fa-solid fa-plus"></i>Thêm ESP</button>
                 </div>
             </section>
 
-            <h2 class="section-title">File cấu hình</h2>
+            <h2 class="section-title">Sao lưu & khôi phục</h2>
             <section class="card group">
                 <div class="row">
-                    <span class="row__label"><i class="fa-solid fa-download"></i>Tải về file home.json</span>
+                    <span class="row__label row__label--wrap"><i class="fa-solid fa-box-archive"></i>
+                        <span>Sao lưu toàn bộ<small>Nhà, ESP, kênh, góc servo, kịch bản, lịch hẹn giờ - trong 1 file</small></span></span>
+                    <button class="btn-pill btn-primary" data-act="backup">Tải về</button>
+                </div>
+                <div class="row">
+                    <span class="row__label row__label--wrap"><i class="fa-solid fa-file-import"></i>
+                        <span>Khôi phục từ file<small>Chọn file sao lưu (hoặc home.json) đã tải trước đó</small></span></span>
+                    <label class="btn-pill">Chọn file<input type="file" id="restoreFile" accept=".json,application/json" hidden /></label>
+                </div>
+                <div class="row">
+                    <span class="row__label row__label--wrap"><i class="fa-solid fa-download"></i>
+                        <span>Chỉ tải home.json<small>Cấu hình nhà, để đưa lên GitHub làm bản gốc</small></span></span>
                     <button class="btn-pill" data-act="export">Tải về</button>
                 </div>
                 ${ctx.homeSource() === 'local' ? html`
@@ -103,7 +124,7 @@ export function mount(root, ctx) {
                     <span class="row__label"><i class="fa-solid fa-rotate-left"></i>Bỏ chỉnh sửa, dùng file gốc</span>
                     <button class="btn-pill btn-danger" data-act="reset">Khôi phục</button>
                 </div>` : ''}
-                <p class="group__note">Thay đổi hiện lưu trên máy này. Khi nối MQTT ở bước sau, cấu hình sẽ tự đồng bộ cho cả nhà và ESP.</p>
+                <p class="group__note">Nên sao lưu mỗi khi thêm/sửa thiết bị. Đổi điện thoại, xóa dữ liệu trình duyệt hay ESP trung tâm hỏng: chỉ cần khôi phục lại file là xong.</p>
             </section>
         `);
     }
@@ -253,6 +274,15 @@ export function mount(root, ctx) {
                     };
                     const targetRoom = $('#dRoom').value;
 
+                    // Chặn trùng kênh: ESP thực sự điều khiển = ESP riêng của thiết bị, hoặc ESP của phòng
+                    if (type !== 'stairs' && ch !== null) {
+                        const effNode = fields.node ?? home.rooms.get(targetRoom)?.node ?? null;
+                        const other = deviceOnChannel(home, effNode, ch, device?.key);
+                        if (other) {
+                            return toast(`Kênh ${ch} của ${nodeText(home, effNode)} đang dùng cho ${other.name} (${other.room.name}). Chọn kênh khác nhé.`, 'error', 4500);
+                        }
+                    }
+
                     if (device) {
                         const result = edit.updateDevice(home.raw, device.key, { ...fields, roomId: targetRoom });
                         // Đổi phòng -> mã đổi: báo kịch bản TRƯỚC khi lưu (lưu xong sẽ dọn mã cũ)
@@ -317,6 +347,43 @@ export function mount(root, ctx) {
         });
     }
 
+    /**
+     * "Phiếu đấu dây" của 1 ESP: kênh nào nối thiết bị nào, servo góc bao nhiêu.
+     * Dùng khi bảo trì: ESP hỏng -> nạp code cho ESP mới cùng số, cắm dây đúng bảng này là chạy lại.
+     */
+    function wiringHtml(node) {
+        const list = devicesOf(node.id);
+        const others = [...home.nodes.values()].filter(n => n.id !== node.id && n.id !== 0);
+        return html`
+            <div class="field"><span>Phiếu đấu dây (${list.length} thiết bị)</span>
+                ${list.length ? html`
+                <table class="data-table wiring">
+                    <thead><tr><th>Kênh</th><th>Thiết bị</th><th>Cách</th></tr></thead>
+                    <tbody>${list.map(d => html`
+                        <tr>
+                            <td>${d.type === 'stairs' ? 'I2C' : d.ch ?? '–'}</td>
+                            <td>${d.name}<small>${d.room.name}</small></td>
+                            <td>${d.type === 'stairs' ? `${d.steps} bậc` : d.actuator === 'servo' ? `Servo ${d.servo.on}°/${d.servo.off}°/${d.servo.rest}°` : 'Relay'}</td>
+                        </tr>`)}
+                    </tbody>
+                </table>` : html`<p class="field__hint">Chưa có thiết bị nào dùng ESP này.</p>`}
+            </div>
+            ${list.length && node.id !== 0 ? html`
+            <div class="field"><span>ESP này hỏng?</span>
+                <ol class="steps">
+                    <li>Nạp code chung vào ESP mới, đặt <strong>số ESP = ${node.id}</strong>.</li>
+                    <li>Cắm dây đúng theo phiếu ở trên (chụp màn hình lại cho chắc).</li>
+                    <li>Cấp điện: ESP trung tâm tự gửi lại cấu hình (kênh, góc servo). Không phải cài gì thêm.</li>
+                </ol>
+                ${others.length ? html`
+                <p class="field__hint">Hoặc tạm chuyển hết sang ESP khác đang rảnh kênh:</p>
+                <div class="move-row">
+                    <select id="nMoveTo">${others.map(n => html`<option value="${n.id}">${n.name} (số ${n.id})</option>`)}</select>
+                    <button type="button" class="btn-pill" id="nMove"><i class="fa-solid fa-right-left"></i>Chuyển hết</button>
+                </div>` : ''}
+            </div>` : ''}`;
+    }
+
     // ---------- Form ESP ----------
     function nodeSheet(node) {
         openSheet({
@@ -332,7 +399,20 @@ export function mount(root, ctx) {
                         </select>
                     </label>
                     ${node ? html`<p class="field__hint">Số của ESP này là <strong>${node.id}</strong>. Khi nạp code cho mạch, đặt đúng số này.</p>` : ''}
+                    ${node ? wiringHtml(node) : ''}
                 `);
+                el.addEventListener('click', e => {
+                    if (!e.target.closest('#nMove')) return;
+                    const to = Number($('#nMoveTo', el).value);
+                    const target = home.nodes.get(to);
+                    const n = devicesOf(node.id).length;
+                    if (!target || !confirm(`Chuyển ${n} thiết bị từ "${node.name}" sang "${target.name}"? Số kênh giữ nguyên, nhớ cắm dây sang ESP mới đúng kênh.`)) return;
+                    const before = channelConflicts(home).size;
+                    if (save(edit.moveNodeDevices(home.raw, node.id, to), `Đã chuyển ${n} thiết bị sang ${target.name}`)) {
+                        if (channelConflicts(ctx.home).size > before) toast('Có thiết bị bị trùng kênh trên ESP mới - xem cảnh báo đỏ trong danh sách', 'error', 5000);
+                        $('.sheet__close')?.click();
+                    }
+                });
             },
             footer(el, close) {
                 render(el, html`
@@ -385,11 +465,37 @@ export function mount(root, ctx) {
             case 'export':
                 ctx.exportHome();
                 return toast('Đã tải file home.json', 'success');
+            case 'backup':
+                ctx.exportBackup();
+                return toast('Đã tải file sao lưu toàn bộ', 'success');
             case 'reset':
                 if (confirm('Bỏ mọi chỉnh sửa và dùng lại file cấu hình gốc?')) {
                     ctx.resetHome();
                     toast('Đã dùng lại file gốc', 'info');
                 }
+        }
+    });
+
+    // ---------- Khôi phục từ file ----------
+    root.addEventListener('change', async e => {
+        if (e.target.id !== 'restoreFile') return;
+        const file = e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        let data;
+        try {
+            data = JSON.parse(await file.text());
+        } catch (err) {
+            return toast('File không đọc được (không phải JSON)', 'error');
+        }
+        const full = data?.type === 'homeglass-backup';
+        const what = full ? 'nhà + kịch bản + lịch hẹn giờ' : 'cấu hình nhà';
+        if (!confirm(`Khôi phục ${what} từ "${file.name}"? Dữ liệu hiện tại sẽ bị thay thế.`)) return;
+        try {
+            ctx.importBackup(data);
+            toast(`Đã khôi phục ${what}`, 'success');
+        } catch (err) {
+            toast(err.problems ? `File lỗi: ${err.problems[0]}` : 'File không đúng định dạng HomeGlass', 'error', 5000);
         }
     });
 
