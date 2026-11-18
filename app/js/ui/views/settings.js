@@ -4,6 +4,54 @@
 
 import { html, render, $ } from '../dom.js';
 import { ACCENTS, BACKGROUNDS } from '../../core/settings.js';
+import { getErrors, clearErrors, errorsText, onErrorsChange } from '../../core/errlog.js';
+import { openSheet } from '../sheet.js';
+
+/** Bảng xem nhật ký lỗi: mới nhất lên đầu, sao chép để gửi người sửa. */
+function openErrorLog(toast) {
+    openSheet({
+        title: 'Nhật ký lỗi',
+        body(el) {
+            const list = getErrors().reverse();
+            if (!list.length) {
+                render(el, html`<p class="errlog__empty"><i class="fa-solid fa-circle-check"></i>Chưa có lỗi nào. Mọi thứ đang chạy ổn!</p>`);
+                return;
+            }
+            render(el, html`
+                <p class="field__hint">Khi app có vấn đề: bấm <strong>Sao chép</strong> rồi gửi nội dung cho người sửa, họ sẽ biết ngay lỗi ở đâu.</p>
+                <ol class="errlog">
+                    ${list.map(e => html`
+                        <li>
+                            <div class="errlog__head">
+                                <strong>${e.where}</strong>
+                                <span>${new Date(e.t).toLocaleString('vi-VN')}${e.count > 1 ? ` · ${e.count} lần` : ''}</span>
+                            </div>
+                            <code>${e.message}</code>
+                        </li>`)}
+                </ol>`);
+        },
+        footer(el, close) {
+            const has = getErrors().length > 0;
+            render(el, html`
+                <button class="btn-pill" id="errClear" ${has ? '' : 'disabled'}><i class="fa-solid fa-trash"></i>Xóa</button>
+                <button class="btn-pill btn-primary" id="errCopy" ${has ? '' : 'disabled'}><i class="fa-solid fa-copy"></i>Sao chép</button>`);
+            el.querySelector('#errCopy').addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(errorsText());
+                    toast('Đã sao chép nhật ký lỗi', 'success');
+                } catch (e) {
+                    toast('Máy không cho sao chép, hãy chụp màn hình nhé', 'error');
+                }
+            });
+            el.querySelector('#errClear').addEventListener('click', () => {
+                if (!confirm('Xóa hết nhật ký lỗi?')) return;
+                clearErrors();
+                close();
+                toast('Đã xóa nhật ký lỗi', 'success');
+            });
+        }
+    });
+}
 
 const THEMES = [
     { id: 'auto', name: 'Tự động', icon: 'fa-circle-half-stroke' },
@@ -35,6 +83,7 @@ export function mount(root, { home, store, settings, toast }) {
         const dark = settings.isDark();
         const themeIndex = THEMES.findIndex(t => t.id === s.theme);
         const usingImage = s.bg?.type === 'image';
+        const errCount = getErrors().length;
 
         render(root, html`
             <header class="page-head">
@@ -127,10 +176,15 @@ export function mount(root, { home, store, settings, toast }) {
                     <span class="row__label"><i class="fa-solid fa-rotate-left"></i>Khôi phục giao diện mặc định</span>
                     <button class="btn-pill" id="reset">Khôi phục</button>
                 </div>
+                <button class="row row--link row--btn" id="errlog">
+                    <span class="row__label"><i class="fa-solid fa-bug"></i>Nhật ký lỗi</span>
+                    <span class="row__value ${errCount ? 'is-bad' : ''}">${errCount ? `${errCount} lỗi` : 'Không có lỗi'}</span>
+                    <i class="fa-solid fa-chevron-right row__go"></i>
+                </button>
                 <div class="row">
                     <span class="row__label"><i class="fa-solid fa-circle-info"></i>HomeGlass</span>
                     <a class="row__value" href="https://github.com/ThaiDat-deptrai/HomeGlass" target="_blank" rel="noopener">
-                        Bản 0.7 · <i class="fa-brands fa-github"></i> GitHub
+                        Bản ${window.HG_VERSION} · <i class="fa-brands fa-github"></i> GitHub
                     </a>
                 </div>
             </section>
@@ -162,6 +216,8 @@ export function mount(root, { home, store, settings, toast }) {
 
         const sw = e.target.closest('.switch');
         if (sw) return save({ [sw.dataset.key]: sw.getAttribute('aria-checked') !== 'true' });
+
+        if (e.target.closest('#errlog')) return openErrorLog(toast);
 
         if (e.target.closest('#reset')) {
             if (!confirm('Đưa giao diện về mặc định?')) return;
@@ -196,6 +252,8 @@ export function mount(root, { home, store, settings, toast }) {
         if (event.type === 'status') draw();
     });
 
+    const offErrors = onErrorsChange(draw); // có lỗi mới -> số đếm cập nhật ngay
+
     draw();
-    return offStore;
+    return () => { offStore(); offErrors(); };
 }

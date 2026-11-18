@@ -13,6 +13,7 @@
 import { onSwipe, decide, rubber } from './swipe.js';
 import { reducedMotion, spring, EASE_SPRING } from './motion.js';
 import { beginTransition } from './transition.js';
+import { logError } from '../core/errlog.js';
 
 export function createRouter({ root, tabbar, routes, tabs, ctx }) {
     let current = null; // { path, view, cleanup }
@@ -56,12 +57,42 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
         return view;
     }
 
+    /**
+     * Dựng 1 màn hình mà KHÔNG để lỗi của nó làm sập cả app:
+     * màn hình nào lỗi thì chỉ màn hình đó hiện thẻ "gặp sự cố" (kèm nút thử lại),
+     * thanh điều hướng và các màn hình khác vẫn dùng bình thường. Lỗi được ghi vào nhật ký.
+     */
+    function safeMount(path, view) {
+        try {
+            return routes[path].mount(view, ctx);
+        } catch (e) {
+            logError(`Mở màn hình ${path}`, e);
+            view.innerHTML = `
+                <div class="card crash">
+                    <i class="fa-solid fa-heart-crack"></i>
+                    <h2>Màn hình này gặp sự cố</h2>
+                    <p>Lỗi đã được ghi vào <strong>Cài đặt → Nhật ký lỗi</strong>. Các phần khác của app vẫn dùng bình thường.</p>
+                    <div class="crash__actions">
+                        <button class="btn-pill btn-primary" data-crash="retry"><i class="fa-solid fa-rotate-right"></i>Thử lại</button>
+                        <a class="btn-pill" href="#/"><i class="fa-solid fa-house"></i>Về trang Nhà</a>
+                    </div>
+                </div>`;
+            view.querySelector('[data-crash="retry"]').addEventListener('click', () => api.refresh());
+            return null;
+        }
+    }
+
+    function safeCleanup(fn) {
+        if (typeof fn !== 'function') return;
+        try { fn(); } catch (e) { logError('Dọn dẹp màn hình', e); }
+    }
+
     /** Gắn thẳng (không hiệu ứng): lần đầu mở app, hoặc vẽ lại. */
     function mountDirect(path) {
-        if (typeof current?.cleanup === 'function') current.cleanup();
+        safeCleanup(current?.cleanup);
         const view = newView();
         root.replaceChildren(view, credit);
-        current = { path, view, cleanup: routes[path].mount(view, ctx) };
+        current = { path, view, cleanup: safeMount(path, view) };
         paintTabbar(path);
     }
 
@@ -71,7 +102,7 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
     function startMove(path, dir) {
         const view = newView();
         const t = beginTransition(current.view, view, dir);
-        const cleanup = routes[path].mount(view, ctx);
+        const cleanup = safeMount(path, view);
         moving = { t, path, view, cleanup, dir, anim: null, p: 0 };
         return moving;
     }
@@ -93,7 +124,7 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
         moving = null;
         tabbar.classList.remove('is-dragging');
         if (commit) {
-            if (typeof current.cleanup === 'function') current.cleanup();
+            safeCleanup(current.cleanup);
             root.replaceChildren(m.view, credit);
             m.t.done();
             current = { path: m.path, view: m.view, cleanup: m.cleanup };
@@ -101,7 +132,7 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
             paintTabbar(m.path);
             if (location.hash !== hashOf(m.path)) location.hash = hashOf(m.path);
         } else {
-            if (typeof m.cleanup === 'function') m.cleanup();
+            safeCleanup(m.cleanup);
             root.replaceChildren(current.view, credit);
             m.t.done();
             window.scrollTo(0, m.t.scrollY);
@@ -231,7 +262,7 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
 
     mountDirect(pathNow());
 
-    return {
+    const api = {
         current: () => current?.path,
         /** Vẽ lại màn hình hiện tại (vd: sau khi sửa cấu hình), giữ vị trí cuộn. */
         refresh() {
@@ -241,4 +272,5 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
             window.scrollTo(0, y);
         }
     };
+    return api;
 }

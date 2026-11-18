@@ -667,6 +667,46 @@
     color: var(--text-2);
 }
 
+/* Thẻ "màn hình gặp sự cố": chỉ màn hình lỗi hiện thẻ này, phần còn lại của app vẫn chạy */
+.crash {
+    margin-top: 12dvh;
+    padding: var(--s-6);
+    text-align: center;
+}
+
+.crash > i {
+    font-size: 34px;
+    color: var(--bad);
+    margin-bottom: 12px;
+}
+
+.crash h2 {
+    font-size: 19px;
+    margin-bottom: 6px;
+}
+
+.crash p {
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--text-2);
+}
+
+.crash__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+.error-card .crash__actions {
+    justify-content: flex-start;
+}
+
+.crash__actions .btn-pill {
+    cursor: pointer;
+}
+
 /* =============================================================
    MÁY TÍNH (>= 1024px): thanh menu dọc bên trái
    ============================================================= */

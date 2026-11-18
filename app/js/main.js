@@ -21,6 +21,7 @@ import { createDemoTransport } from './transport/demo.js';
 import { createRouter } from './ui/router.js';
 import { toast } from './ui/toast.js';
 import { enablePress } from './ui/press.js';
+import { logError, captureGlobalErrors } from './core/errlog.js';
 import { enableWheelSwitch } from './ui/wheel.js';
 import { html, render } from './ui/dom.js';
 
@@ -39,21 +40,43 @@ function showConfigError(app, problems) {
             <h1><i class="fa-solid fa-triangle-exclamation"></i> Không mở được nhà</h1>
             <p>Cấu hình nhà có vấn đề:</p>
             <ul>${problems.map(p => html`<li>${p}</li>`)}</ul>
+            <div class="crash__actions">
+                <button class="btn-pill btn-primary" onclick="location.reload()"><i class="fa-solid fa-rotate-right"></i>Tải lại</button>
+                <label class="btn-pill"><i class="fa-solid fa-file-import"></i>Khôi phục từ file sao lưu<input type="file" id="rescueFile" accept=".json,application/json" hidden /></label>
+            </div>
         </div>`);
+    // Cứu hộ: cấu hình hỏng nặng -> nạp lại từ file sao lưu rồi mở lại app
+    app.querySelector('#rescueFile')?.addEventListener('change', async e => {
+        try {
+            const data = JSON.parse(await e.target.files[0].text());
+            const home = data?.type === 'homeglass-backup' ? data.home : data;
+            parseHome(home); // kiểm tra trước, sai thì báo lỗi
+            writeLocal(home);
+            location.reload();
+        } catch (err) {
+            toast(err.problems ? `File lỗi: ${err.problems[0]}` : 'File sao lưu không hợp lệ', 'error', 5000);
+        }
+    });
 }
+
+const LAST_FILE_KEY = 'hg.home.lastFile';
 
 async function start() {
     const app = document.getElementById('app');
+    captureGlobalErrors();
 
     const settings = createSettings();
     settings.apply();
 
     // ----- Đọc cấu hình: ưu tiên bản đã chỉnh trong app -----
-    let fileData;
+    // Mất mạng / GitHub lỗi -> dùng bản file gốc đã nhớ từ lần trước, app vẫn mở được.
+    let fileData = null;
     try {
         fileData = await fetchHomeFile(CONFIG_URL);
+        try { localStorage.setItem(LAST_FILE_KEY, JSON.stringify(fileData)); } catch (e) { /* bỏ qua */ }
     } catch (e) {
-        return showConfigError(app, [e.message]);
+        logError('Tải config/home.json', e);
+        try { fileData = JSON.parse(localStorage.getItem(LAST_FILE_KEY)); } catch (err) { fileData = null; }
     }
 
     let source = 'file';
@@ -64,14 +87,17 @@ async function start() {
             home = parseHome(local);
             source = 'local';
         } catch (e) {
+            logError('Bản chỉnh trên máy bị hỏng', e);
             clearLocal(); // bản chỉnh bị hỏng: quay về file gốc
             toast('Bản chỉnh trên máy bị lỗi, đã dùng lại file gốc', 'error');
         }
     }
     if (!home) {
+        if (!fileData) return showConfigError(app, ['Không tải được file cấu hình và trên máy chưa có bản nào. Kiểm tra mạng rồi tải lại.']);
         try {
             home = parseHome(fileData);
         } catch (e) {
+            logError('File cấu hình gốc bị lỗi', e);
             return showConfigError(app, e instanceof ConfigError ? e.problems : [e.message]);
         }
     }
@@ -138,6 +164,7 @@ async function start() {
         },
         /** Bỏ mọi chỉnh sửa, dùng lại file config/home.json. */
         resetHome() {
+            if (!fileData) throw new Error('Chưa tải được file gốc (mất mạng?)');
             clearLocal();
             source = 'file';
             applyHome(parseHome(fileData));
@@ -195,4 +222,8 @@ async function start() {
     requestAnimationFrame(() => requestAnimationFrame(() => document.documentElement.classList.add('is-ready')));
 }
 
-start();
+start().catch(e => {
+    // Lỗi nặng lúc mở app: ghi lại và hiện thẻ báo lỗi thay vì màn hình trắng
+    logError('Khởi động app', e);
+    showConfigError(document.getElementById('app'), [`Lỗi khi mở app: ${e?.message || e}`]);
+});
