@@ -1797,6 +1797,8 @@ html.is-login .app {
 .login {
     min-height: calc(100dvh - 32px);
     display: grid;
+    /* minmax(0, 1fr): chữ dài trong thẻ không được đẩy thẻ rộng hơn màn hình */
+    grid-template-columns: minmax(0, 1fr);
     place-items: center;
     padding: var(--s-5) 0;
 }
@@ -1875,6 +1877,20 @@ html.is-login .app {
     margin-top: 10px;
     padding: 13px 16px;
     font-size: 15px;
+    white-space: normal; /* màn hình hẹp: chữ xuống dòng thay vì tràn */
+    text-align: center;
+}
+
+.login__demo small {
+    display: block;
+    width: 100%;
+    font-size: 12px;
+    font-weight: 500;
+    opacity: 0.75;
+}
+
+.login__demo {
+    flex-wrap: wrap;
 }
 
 .login__go:disabled {

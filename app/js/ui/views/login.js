@@ -46,7 +46,8 @@ export function showLogin(root, { createDemo }) {
                         <i class="fa-solid fa-right-to-bracket"></i><span>Kết nối</span>
                     </button>
                     <button type="button" class="btn-pill login__demo" id="lDemo">
-                        <i class="fa-solid fa-flask"></i>Xem bản demo (không cần tài khoản)
+                        <i class="fa-solid fa-flask"></i>Xem bản demo
+                        <small>Nhà ảo riêng trên máy này, không cần tài khoản, không đồng bộ</small>
                     </button>
                     <p class="login__note"><i class="fa-solid fa-lock"></i>Mật khẩu chỉ lưu trên máy này, không gửi đi đâu ngoài máy chủ MQTT.</p>
                 </form>

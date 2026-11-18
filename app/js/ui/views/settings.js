@@ -172,7 +172,10 @@ export function mount(root, ctx) {
                     <span class="row__value conn conn--${store.status()}">${CONNECTION_TEXT[store.status()] || store.status()}</span>
                 </div>
                 <div class="row">
-                    <span class="row__label"><i class="fa-solid ${isDemo ? 'fa-flask' : 'fa-user'}"></i>${isDemo ? 'Đang xem bản demo' : store.transportUser}</span>
+                    <span class="row__label row__label--wrap"><i class="fa-solid ${isDemo ? 'fa-flask' : 'fa-user'}"></i>
+                        <span>${isDemo ? 'Đang xem bản demo' : store.transportUser}<small>${isDemo
+                            ? 'Nhà ảo riêng trên máy này: các máy KHÔNG đồng bộ với nhau'
+                            : 'Cấu hình, kịch bản, lịch hẹn tự đồng bộ giữa các máy cùng nhà'}</small></span></span>
                     <button class="btn-pill ${isDemo ? 'btn-primary' : ''}" id="logout">${isDemo ? 'Đăng nhập nhà thật' : 'Đăng xuất'}</button>
                 </div>
             </section>
