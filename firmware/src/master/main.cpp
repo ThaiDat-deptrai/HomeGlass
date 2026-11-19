@@ -676,13 +676,59 @@ static void connectMqtt() {
 // =============================================================
 // WiFi
 // =============================================================
+// Lý do WiFi từ chối (in ra log bằng lời dễ hiểu, khỏi phải đoán)
+static volatile uint8_t wifiReason = 0;
+static String wifiSsidFix;  // tên WiFi thật của router nếu secrets.h ghi lệch dấu cách
+static uint8_t wifiReasonShown = 0;
+static uint32_t wifiScanAt = 0;
+
+static const char *wifiReasonText(uint8_t r) {
+    switch (r) {
+        case WIFI_REASON_NO_AP_FOUND: return "KHÔNG THẤY WiFi này (sai tên, WiFi chỉ phát 5GHz, hoặc quá xa)";
+        case WIFI_REASON_AUTH_FAIL:
+        case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
+        case WIFI_REASON_HANDSHAKE_TIMEOUT: return "SAI MẬT KHẨU WiFi (hoặc router chặn chuẩn bảo mật)";
+        case WIFI_REASON_ASSOC_FAIL: return "router từ chối kết nối (lọc MAC? quá nhiều thiết bị?)";
+        case WIFI_REASON_BEACON_TIMEOUT: return "mất sóng WiFi";
+        default: return "lý do khác";
+    }
+}
+
+/** Không thấy WiFi: liệt kê các WiFi 2,4GHz ESP nhìn thấy (để so tên cho đúng). */
+static void wifiScanReport() {
+    if (wifiScanAt && millis() - wifiScanAt < 120000) return;
+    wifiScanAt = millis();
+    WiFi.disconnect();  // đang thử kết nối thì không quét được
+    delay(100);
+    esp_task_wdt_reset();
+    int n = WiFi.scanNetworks(false, true);
+    esp_task_wdt_reset();
+    Serial.printf("[wifi] ESP nhìn thấy %d WiFi (chỉ bắt được 2,4GHz):\n", n);
+    String want = usingBackup ? HG_WIFI_SSID2 : HG_WIFI_SSID;
+    String wantTrim = want;
+    wantTrim.trim();
+    for (int i = 0; i < n && i < 15; i++) {
+        String s = WiFi.SSID(i);
+        String sTrim = s;
+        sTrim.trim();
+        bool exact = s == want;
+        bool near = !exact && sTrim.length() && sTrim == wantTrim;
+        Serial.printf("   \"%s\"  sóng %d dBm  kênh %d%s\n", s.c_str(), WiFi.RSSI(i), WiFi.channel(i),
+            exact ? "   <- đúng tên trong secrets.h" : near ? "   <- GẦN ĐÚNG (khác dấu cách): tự dùng tên này" : "");
+        // Tên chỉ khác dấu cách đầu/cuối (lỗi rất hay gặp): tự dùng tên thật của router
+        if (near) wifiSsidFix = s;
+    }
+    WiFi.scanDelete();
+}
+
 static void wifiBegin(bool backup) {
+    if (backup != usingBackup) wifiSsidFix = "";
     usingBackup = backup;
     WiFi.disconnect();
-    if (backup) WiFi.begin(HG_WIFI_SSID2, HG_WIFI_PASS2);
-    else WiFi.begin(HG_WIFI_SSID, HG_WIFI_PASS);
+    String ssid = wifiSsidFix.length() ? wifiSsidFix : String(backup ? HG_WIFI_SSID2 : HG_WIFI_SSID);
+    WiFi.begin(ssid.c_str(), backup ? HG_WIFI_PASS2 : HG_WIFI_PASS);
     wifiLastOk = millis();
-    Serial.printf("[wifi] đang nối %s\n", backup ? HG_WIFI_SSID2 : HG_WIFI_SSID);
+    Serial.printf("[wifi] đang nối \"%s\"\n", ssid.c_str());
 }
 
 static void wifiLoop() {
@@ -697,8 +743,19 @@ static void wifiLoop() {
         return;
     }
     wifiWasConnected = false;
+    if (wifiReason && wifiReason != wifiReasonShown) {
+        wifiReasonShown = wifiReason;
+        Serial.printf("[wifi] không vào được: %s (mã %u)\n", wifiReasonText(wifiReason), wifiReason);
+        if (wifiReason == WIFI_REASON_NO_AP_FOUND) {
+            wifiScanReport();
+            wifiBegin(usingBackup);
+        }
+    }
     // Mất WiFi 30 giây: thử lại (đổi sang WiFi dự phòng nếu có)
-    if (millis() - wifiLastOk > 30000) wifiBegin(strlen(HG_WIFI_SSID2) ? !usingBackup : false);
+    if (millis() - wifiLastOk > 30000) {
+        wifiReasonShown = 0;
+        wifiBegin(strlen(HG_WIFI_SSID2) ? !usingBackup : false);
+    }
 }
 
 static void ledLoop() {
@@ -719,6 +776,7 @@ static void serialLoop() {
             HG_FW_VERSION, WiFi.status() == WL_CONNECTED ? "OK" : "chưa", WiFi.RSSI(), WiFi.channel(),
             mqtt.connected() ? "OK" : "chưa", (unsigned)nodes.size(), (unsigned)schedules.size(), chipTemp(), resetText(resetCode()));
         for (auto &kv : nodes) {
+            if (kv.first == HG_MASTER_ID) continue;  // chính nó
             Serial.printf("  ESP %u: %s, %u thiết bị%s\n", kv.first, kv.second.online ? "online" : "offline",
                 kv.second.table.n, kv.second.hasHb ? (", " + String(kv.second.hb.temp10 / 10.0f, 1) + "°C").c_str() : "");
         }
@@ -749,6 +807,10 @@ void setup() {
     WiFi.setSleep(false);          // không ngủ: ESP-NOW nhận lệnh tức thì
     WiFi.setAutoReconnect(true);
     WiFi.setHostname("homeglass-trung-tam");
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+        if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) wifiReason = info.wifi_sta_disconnected.reason;
+        if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) wifiReason = 0;
+    });
     wifiBegin(false);
 
     linkOk = net.begin(HG_NET_KEY, HG_MASTER_ID);
