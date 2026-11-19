@@ -175,8 +175,13 @@ static void onDone(uint8_t idx, bool on, uint32_t cmdId) {
 // =============================================================
 // Nhận từ trung tâm
 // =============================================================
+static uint32_t beaconCount = 0;
+static bool debugBeacon = false;   // gõ "debug" trong Serial để xem từng beacon
+
 static void onBeacon(const Packet &p) {
     if (p.h.from != HG_MASTER_ID || p.h.len < sizeof(MsgBeacon)) return;
+    beaconCount++;
+    if (debugBeacon) Serial.printf("[beacon] #%u t=%lu ms kênh %u\n", (unsigned)beaconCount, (unsigned long)millis(), net.channel());
     // Giờ chuẩn: chỉ cho đi tới (gói beacon cũ bị phát lại không kéo lùi được giờ)
     uint32_t mine = net.now();
     if (!mine || p.h.time + 90 >= mine) net.setTime(p.h.time);
@@ -289,12 +294,17 @@ static void serialLoop() {
                 e.act == ACT_SERVO ? "servo" : e.act == ACT_RELAY ? "relay" : "cau thang",
                 outputs.states() & (1u << i) ? "BẬT" : "tắt");
         }
+        Serial.printf("  beacon nhận %u | gói bị từ chối %u | gửi OK %u, lỗi %u | mã hóa %s\n",
+            (unsigned)beaconCount, (unsigned)net.rejected(), (unsigned)net.sentOk(), (unsigned)net.sentFail(), net.encrypted() ? "có" : "không");
+    } else if (line == "debug") {
+        debugBeacon = !debugBeacon;
+        Serial.println(debugBeacon ? "Bật log từng beacon" : "Tắt log từng beacon");
     } else if (line == "reboot") {
         ESP.restart();
     } else if (line == "factory") {
         factoryReset();
     } else if (line.length()) {
-        Serial.println("Lệnh: id <số> | info | reboot | factory");
+        Serial.println("Lệnh: id <số> | info | debug | reboot | factory");
     }
 }
 
@@ -376,7 +386,8 @@ void loop() {
     }
 
     // Mất beacon quá lâu -> dò lại kênh (router đổi kênh, trung tâm khởi động lại...)
-    if (online && now - lastBeacon > HG_LINK_LOST_MS) {
+    // So sánh có dấu: lastBeacon có thể mới hơn "now" vài ms (vừa nhận gói trong cùng vòng lặp)
+    if (online && (int32_t)(now - lastBeacon) > (int32_t)HG_LINK_LOST_MS) {
         online = false;
         searchStart = now;
         Serial.println("[link] mất ESP trung tâm, đang dò lại...");

@@ -349,7 +349,7 @@ static void pendingLoop() {
                 p.tries++;
                 p.nextAt = now + CMD_RETRY_MS * p.tries;
             }
-        } else if (now - p.ackAt > STATE_WAIT_MS) {
+        } else if ((int32_t)(now - p.ackAt) > (int32_t)STATE_WAIT_MS) {
             publishLog(p.node, p.key + ": đã nhận lệnh nhưng không báo xong (servo kẹt / mất điện servo?)");
             it = pending.erase(it);
             continue;
@@ -780,6 +780,8 @@ static void serialLoop() {
             Serial.printf("  ESP %u: %s, %u thiết bị%s\n", kv.first, kv.second.online ? "online" : "offline",
                 kv.second.table.n, kv.second.hasHb ? (", " + String(kv.second.hb.temp10 / 10.0f, 1) + "°C").c_str() : "");
         }
+        Serial.printf("  ESP-NOW gửi OK %u, lỗi %u | gói bị từ chối %u | mã hóa %s\n",
+            (unsigned)net.sentOk(), (unsigned)net.sentFail(), (unsigned)net.rejected(), net.encrypted() ? "có" : "không");
     } else if (line == "reboot") {
         reboot();
     } else if (line == "factory") {
@@ -846,7 +848,7 @@ void loop() {
             mqtt.loop();
         } else if ((int32_t)(now - mqttRetryAt) >= 0) {
             // TLS cần giờ chuẩn để kiểm tra chứng chỉ: chờ tối đa 20 giây
-            if (net.now() || now - wifiConnectedAt > 20000) connectMqtt();
+            if (net.now() || (int32_t)(now - wifiConnectedAt) > 20000) connectMqtt();
         }
     }
 
