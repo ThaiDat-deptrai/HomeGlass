@@ -14,11 +14,17 @@
 const LOCK_DISTANCE = 10; // px: di chuyển bao nhiêu thì quyết định hướng
 
 /** Vùng không nhận vuốt (tự cuộn ngang, thanh trượt, biểu đồ, ô nhập...). */
-const IGNORE = '.chips, input, textarea, select, .chart, .sheet, .no-swipe, .segmented';
+const IGNORE = '.chips, input, textarea, select, .chart, .sheet, .no-swipe, .segmented, .snap-row';
+
+/** Vuốt bắt đầu sát mép trái màn hình = cử chỉ "quay lại" của hệ thống (giống iOS). */
+export const EDGE_BACK = 24;
+
+/** Điện thoại / máy tính bảng dọc: vuốt từng mục + hiệu ứng kiểu iPhone. Máy tính giữ nguyên. */
+export const isPhone = () => window.matchMedia('(max-width: 1023px)').matches;
 
 /**
  * onSwipe(el, {
- *   start(dx) -> false nếu không nhận (vd: đang ở mép, không còn trang),
+ *   start(dx, x0) -> false nếu không nhận (vd: đang ở mép, không còn trang). x0: chỗ đặt ngón tay,
  *   move(dx),
  *   end(dx, velocity)   velocity: px/ms, dương = vuốt sang phải,
  *   cancel()
@@ -101,7 +107,7 @@ export function onSwipe(el, handlers) {
         if (Math.abs(dx) < LOCK_DISTANCE && Math.abs(dy) < LOCK_DISTANCE) return;
         const horizontal = Math.abs(dx) > Math.abs(dy) * 1.15;
         // Phần tử bên trong đã nhận cử chỉ này rồi -> nhường
-        if (!horizontal || e.hgSwipeClaimed || handlers.start?.(dx) === false) {
+        if (!horizontal || e.hgSwipeClaimed || handlers.start?.(dx, x0) === false) {
             mode = 'skip';
             return;
         }
@@ -140,3 +146,19 @@ export function decide(dx, velocity, width) {
 
 /** Kéo quá mép thì càng kéo càng nặng tay (giống iOS). */
 export const rubber = (dx, width) => (dx / Math.abs(dx || 1)) * (1 - 1 / (Math.abs(dx) / width * 0.55 + 1)) * width;
+
+/**
+ * Điện thoại: 1 lần vuốt = đúng 1 mục (không cần kéo xa, hất nhẹ là đủ).
+ * Trả về -1 (mục trước), +1 (mục sau) hoặc 0 (về chỗ cũ).
+ */
+export function decideStep(dx, velocity) {
+    if (dx < -36 || velocity < -0.3) return 1;
+    if (dx > 36 || velocity > 0.3) return -1;
+    return 0;
+}
+
+/**
+ * Trong lúc kéo: nội dung đi theo ngón tay nhưng "nặng" dần (không lộ trang bên cạnh),
+ * để người dùng biết là đang vuốt, nhưng thả tay mới đổi mục.
+ */
+export const dragFollow = (dx, width) => rubber(dx, width) * 0.55;

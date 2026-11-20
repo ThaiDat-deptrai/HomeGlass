@@ -23,12 +23,12 @@
         Thêm file JS mới thì nhớ thêm tên vào danh sách JS_FILES bên dưới.
     -->
     <script>
-        var HG_VERSION = '0.11.0';
+        var HG_VERSION = '0.12.0';
         var JS_FILES = [
             'main.js',
             'core/config.js', 'core/homeData.js', 'core/store.js', 'core/settings.js',
             'core/scenes.js', 'core/commands.js', 'core/stairs.js', 'core/sun.js', 'core/schedules.js',
-            'core/errlog.js', 'core/protocol.js', 'core/auth.js', 'core/sync.js',
+            'core/errlog.js', 'core/protocol.js', 'core/auth.js', 'core/sync.js', 'core/firmware.js',
             'transport/demo.js', 'transport/mqtt.js',
             'ui/dom.js', 'ui/toast.js', 'ui/feedback.js', 'ui/icons.js', 'ui/router.js', 'ui/sheet.js',
             'ui/motion.js', 'ui/swipe.js', 'ui/chart.js', 'ui/press.js', 'ui/transition.js', 'ui/wheel.js',
@@ -62,7 +62,7 @@
 
     <!-- Điện thoại: thanh dưới cùng. Máy tính (>= 1024px): menu dọc bên trái -->
     <nav class="tabbar" id="tabbar" aria-label="Điều hướng chính">
-        <div class="tabbar__brand"><span><i class="fa-solid fa-house-signal"></i></span>HomeGlass</div>
+        <a class="tabbar__brand" href="#/" aria-label="HomeGlass - về trang Nhà"><span><i class="fa-solid fa-house-signal"></i></span>HomeGlass</a>
         <div class="tabbar__links">
             <span class="tabbar__hover" aria-hidden="true"></span>
             <span class="tabbar__pill" aria-hidden="true"></span>

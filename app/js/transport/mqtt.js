@@ -298,6 +298,11 @@ export function createMqttTransport(auth) {
                 handlers.onNodeStatus?.(t.id, { health: { ...health, at: Date.now() } });
             } else if (t.what === 'log' && data && !retained) {
                 logError(`ESP ${t.id}`, data.msg ?? data.value ?? payload);
+            } else if (t.what === 'update' && data && !retained) {
+                // Tiến độ cập nhật firmware: { stage, pct, msg }
+                const { v, ...ota } = data;
+                handlers.onNodeStatus?.(t.id, { ota: { ...ota, at: Date.now() } });
+                if (ota.stage === 'error') logError(`Cập nhật ESP ${t.id}`, ota.msg || 'lỗi');
             }
             return;
         }
@@ -345,6 +350,11 @@ export function createMqttTransport(auth) {
         /** Lệnh cho 1 ESP (nháy đèn để tìm, khởi động lại...). */
         command(nodeId, cmd) {
             return publish(topics.nodeCmd(nodeId), encode({ cmd }));
+        },
+
+        /** Cập nhật firmware 1 ESP: { url, sha256, size, ver }. KHÔNG giữ lại (retained) - chỉ chạy 1 lần. */
+        ota(nodeId, info) {
+            return publish(topics.nodeOta(nodeId), encode(info));
         },
 
         sync() { /* cấu hình mới được core/sync.js gửi đi */ },

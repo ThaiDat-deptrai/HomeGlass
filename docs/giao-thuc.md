@@ -44,6 +44,10 @@ Có người gạt **công tắc tường** bằng tay: servo **không tự bi�
 | `hg/node/<số>/health` | ESP trung tâm | **có** | `{"v":1,"fw":"0.1.0","up":3600,"rssi":-61,"heap":182000,"reset":"POWERON"}` |
 | `hg/node/<số>/log` | ESP trung tâm | không | `{"v":1,"msg":"Servo kênh 2 không quay"}`: hiện trong **Nhật ký lỗi** của app |
 | `hg/node/<số>/cmd` | app | không | `{"v":1,"cmd":"identify"}`: `identify` (nháy đèn 10 giây để tìm ESP), `reboot`, `resync` (gửi lại trạng thái) |
+| `hg/node/<số>/ota` | app | **không** (chỉ chạy 1 lần) | cập nhật firmware: `{"v":1,"url":"https://thaidat-deptrai.github.io/HomeGlass/firmware/bin/node-0.2.0.bin","sha256":"<64 hex>","size":767248,"ver":"0.2.0"}` |
+| `hg/node/<số>/update` | ESP trung tâm | không | tiến độ cập nhật: `{"v":1,"stage":"download\|send\|reboot\|done\|error","pct":40,"msg":"..."}` |
+
+**Cập nhật firmware qua mạng (OTA):** app đọc `firmware/bin/manifest.json` (tạo bằng `tools/phat-hanh-firmware.ps1`), thấy bản mới hơn `fw` trong `health` thì hiện nút "Cập nhật". ESP trung tâm **chỉ** tải file có địa chỉ bắt đầu bằng `HG_OTA_URL_PREFIX` (hg_config.h) và **chỉ** cài khi SHA-256 + loại chip khớp. ESP phòng nhận file từ trung tâm qua ESP-NOW (gói 20–24, `hg_msgs.h`), tự kiểm SHA-256 lần nữa. Bản mới phải tự "chốt" (trung tâm: lên được MQTT trong 10 phút; ESP phòng: thấy trung tâm trong 5 phút), không thì tự quay về bản cũ. File cập nhật **không chứa mật khẩu**: WiFi/MQTT/khóa mạng nằm trong flash từng ESP từ lần nạp USB.
 
 ESP trung tâm gửi `temp` của **mọi ESP mỗi 10 giây** (app coi mất kết nối sau 30 giây không có tin), còn `health` thì mỗi phút.
 

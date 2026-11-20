@@ -130,7 +130,21 @@ Firmware đã làm sẵn:
 - **Tự giảm công suất phát** khi sóng tốt. Quá 80°C thì giảm mức thấp nhất và báo lên app.
 - Servo được ngắt xung sau mỗi lần gạt.
 
-Phần bạn nên làm: đừng đặt C3 trong hộp kín sát nguồn tổ ong hay sát module relay. Khoan vài lỗ thoáng cho hộp. Tab **Nhiệt độ** trong app hiện nhiệt độ từng ESP, báo vàng từ 55°C, đỏ từ 60°C.
+Phần bạn nên làm: đừng đặt C3 trong hộp kín sát nguồn tổ ong hay sát module relay. Khoan vài lỗ thoáng cho hộp. Tab **Nhiệt độ** trong app hiện nhiệt độ từng ESP, báo vàng từ 70°C, đỏ từ 80°C (cảm biến đo lõi chip nên 50-60°C là bình thường).
+
+## 7b. Cập nhật firmware qua mạng (không cần cắm USB)
+
+Có từ bản **0.2.0**. Mạch đang chạy bản 0.1.x thì phải nạp USB **1 lần** bản 0.2.0 (như mục 3, 4). Lần nạp USB này cũng chép WiFi, MQTT, khóa mạng từ `secrets.h` vào flash của mạch.
+
+Từ đó về sau:
+1. Mình (hoặc bạn) sửa code, tăng `HG_FW_VERSION` trong `firmware/include/hg_config.h`.
+2. Chạy `powershell -ExecutionPolicy Bypass -File tools\phat-hanh-firmware.ps1`. Script tạo file cập nhật **không có mật khẩu**, tự kiểm tra lại cho chắc, rồi ghi `firmware/bin/manifest.json`.
+3. Commit + push. Khoảng 10 phút sau, app hiện **"Có bản mới"** ở **Cài đặt → Phòng & thiết bị → Bộ điều khiển ESP**.
+4. Bấm vào từng ESP → **Cập nhật**. Mỗi ESP mất khoảng 1 phút. Cập nhật ESP phòng trước, ESP trung tâm sau cùng.
+
+Mất điện / rớt sóng giữa chừng thì không sao: ESP vẫn chạy bản cũ. Bản mới lỗi thì ESP tự quay về bản cũ.
+
+**Đừng** nạp file trong `firmware/bin/` qua USB cho mạch mới tinh: file đó không có mật khẩu, mạch sẽ không vào được mạng. Mạch mới thì nạp bản `master` / `node` như mục 3, 4.
 
 ## 8. Khi có sự cố
 
@@ -140,6 +154,7 @@ Phần bạn nên làm: đừng đặt C3 trong hộp kín sát nguồn tổ ong
 | App báo "ESP x mất kết nối" | Xem đèn trên ESP đó. Bấm nút BOOT, nếu nó nháy số thì ESP vẫn sống |
 | App báo "SỤT ÁP" | Nguồn servo yếu hoặc chưa nối chung GND |
 | Thay ESP hỏng | Nạp bản `node`, gõ **đúng số cũ**. Trung tâm tự gửi lại bảng kênh. Cắm dây theo Phiếu đấu dây |
-| Đổi router WiFi | Sửa `secrets.h`, nạp lại **chỉ ESP trung tâm**. ESP phòng tự dò kênh mới |
+| Đổi router WiFi | Sửa `secrets.h`, nạp lại qua USB **chỉ ESP trung tâm** (cập nhật qua mạng không đổi được mật khẩu WiFi). ESP phòng tự dò kênh mới |
+| Cập nhật qua mạng báo lỗi | Đọc dòng đỏ dưới nút Cập nhật / Nhật ký lỗi. ESP vẫn chạy bản cũ, bấm lại là được |
 
 Gõ trong log (Serial Monitor): `info` (xem tình trạng), `reboot`, `factory` (xóa cấu hình).

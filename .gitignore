@@ -7,6 +7,8 @@ secrets.h
 build/
 .pio/
 *.bin
+# ...trừ file cập nhật qua mạng (bản công khai, không có mật khẩu - xem tools/phat-hanh-firmware.ps1)
+!firmware/bin/*.bin
 *.elf
 *.map
 

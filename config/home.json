@@ -85,7 +85,8 @@
           "name": "Cầu thang",
           "node": 6,
           "devices": [
-            { "id": "den", "name": "Đèn cầu thang", "type": "stairs", "steps": 15, "driver": "mcp23017" }
+            { "id": "den", "name": "Cầu thang 1", "type": "stairs", "steps": 13, "driver": "pca9685" },
+            { "id": "den-2", "name": "Cầu thang 2", "type": "stairs", "steps": 13, "driver": "pca9685" }
           ]
         }
       ]

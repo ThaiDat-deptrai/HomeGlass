@@ -106,7 +106,7 @@
         const tables = buildNodeConfigs(parseHome(RAW), 5);
         const t1 = tables.get(1).devices;
         check('Bảng kênh ESP 1: bỏ đèn chưa có kênh', t1.length === 2 && !t1.some(d => d.k === 'r1/d3'));
-        check('Bảng kênh có góc servo', t1[0].a === 'servo' && t1[0].on === 40 && t1[0].off === 135 && t1[0].rest === 90);
+        check('Bảng kênh có góc servo', t1[0].a === 'servo' && t1[0].on === 40 && t1[0].off === 180 && t1[0].rest === 90); // góc chưa ghi -> mặc định 0/180/90
 
         // ---------- Đăng nhập ----------
         const bad = createMqttTransport({ url: 'wss://fake/mqtt', username: 'app', password: 'sai' });

@@ -8,8 +8,8 @@
 import { html, render, $, $$ } from '../dom.js';
 import { deviceIcon, roomIcon } from '../icons.js';
 import { tap } from '../feedback.js';
-import { pop, rollNumber, reducedMotion } from '../motion.js';
-import { onSwipe, decide, rubber } from '../swipe.js';
+import { pop, rollNumber, reducedMotion, riseIn, stretch, bloom, EASE_SPRING_SOFT } from '../motion.js';
+import { onSwipe, decide, rubber, decideStep, dragFollow, isPhone, EDGE_BACK } from '../swipe.js';
 import { isLight } from '../../core/config.js';
 import { mountStairs } from './stairs.js';
 
@@ -70,8 +70,9 @@ function roomHtml(room) {
 
 /** Nội dung 1 trang: tầng thường -> danh sách phòng; khu cầu thang -> bảng điều khiển riêng. */
 function pageHtml(floor) {
-    const stairs = floor.type === 'stairs' && floor.rooms.flatMap(r => r.devices).find(d => d.type === 'stairs');
-    if (stairs) return html`<div class="stairs-host" data-key="${stairs.key}"></div>`;
+    // Nhà có thể có nhiều cầu thang (vd 2 cầu thang song song): mỗi cái 1 bảng điều khiển
+    const stairs = floor.type === 'stairs' ? floor.rooms.flatMap(r => r.devices).filter(d => d.type === 'stairs') : [];
+    if (stairs.length) return html`<div class="stairs-list">${stairs.map(s => html`<div class="stairs-host" data-key="${s.key}"></div>`)}</div>`;
     if (floor.rooms.length) return html`<div class="rooms">${floor.rooms.map(roomHtml)}</div>`;
     return html`<div class="card empty"><i class="fa-solid fa-couch"></i>${floor.name} chưa có phòng nào.<br><a href="#/manage">Thêm phòng</a></div>`;
 }
@@ -171,6 +172,7 @@ export function mount(root, ctx) {
         tile.querySelector('.tile__status').textContent = statusLabel(state);
         if (lastOn.has(key) && lastOn.get(key) !== state.on && state.on !== null) {
             pop(tile.querySelector('.tile__icon'));
+            if (state.on) bloom(tile);
         }
         lastOn.set(key, state.on);
     }
@@ -201,13 +203,16 @@ export function mount(root, ctx) {
     function placeTrack(dx = 0, animate = false) {
         if (animate && !reducedMotion()) {
             pager.classList.add('is-moving');
-            track.style.transition = 'transform 0.5s var(--ease-ios)';
+            // Điện thoại: lò xo mềm (hơi nảy ở cuối) như iPhone; máy tính giữ như cũ
+            track.style.transition = isPhone() ? `transform 0.6s ${EASE_SPRING_SOFT}` : 'transform 0.5s var(--ease-ios)';
             clearTimeout(settleTimer);
-            settleTimer = setTimeout(settle, 520);
+            settleTimer = setTimeout(settle, 620);
         } else {
             track.style.transition = 'none';
         }
-        track.style.transform = `translateX(${-floorIndex * pageWidth() + dx}px)`;
+        // Tính theo % bề ngang của chính nó, KHÔNG theo số px đo lúc trước: thanh cuộn hiện/ẩn
+        // (trang dài ra) làm bề ngang đổi mà không có sự kiện resize -> trang thứ 3 bị lệch.
+        track.style.transform = `translateX(calc(${-floorIndex * 100}% - ${floorIndex * PAGE_GAP}px + ${dx}px))`;
     }
 
     function drawFloorTabs(progress = floorIndex) {
@@ -231,8 +236,69 @@ export function mount(root, ctx) {
         drawFloorTabs();
     }
 
+    /** Đổi tầng có hiệu ứng (điện thoại: viên chọn giãn ra, phòng nổi lên lần lượt). */
+    function goFloor(index) {
+        const dir = Math.sign(index - floorIndex);
+        if (!dir) return;
+        showFloor(index);
+        stretch($('.segmented__thumb', seg), dir);
+        riseIn($$('.room, .stairs, .card', pages[index]), { from: 90 });
+    }
+
+    // ---------- ĐIỆN THOẠI: vuốt ở BẤT KỲ đâu trên màn hình Nhà = đổi đúng 1 tầng ----------
+    // Kéo thì trang chỉ nhích theo tay (nặng dần, không lộ trang bên cạnh); thả tay mới đổi.
+    // Ở tầng đầu / cuối: nảy lại, KHÔNG nhảy sang tab khác (đổi tab bằng thanh dưới).
+    let dragPage = null;
+
+    function finishDrag(step) {
+        const page = dragPage;
+        dragPage = null;
+        if (!page) return;
+        const from = page.style.transform;
+        const fromOpacity = Number(page.style.opacity || 1);
+        const d = parseFloat((from.match(/-?[\d.]+/) || [0])[0]) || 0;
+        page.style.transform = '';
+        page.style.opacity = '';
+        const target = floorIndex + step;
+        if (step && target >= 0 && target < floors.length) {
+            tap(settings);
+            placeTrack(d);        // nối tiếp đúng chỗ ngón tay đang để...
+            void track.offsetWidth;
+            goFloor(target);      // ...rồi lò xo sang tầng mới
+            page.animate([{ opacity: fromOpacity }, { opacity: 1 }], { duration: 300 });
+            return;
+        }
+        pager.classList.remove('is-moving');
+        if (from && !reducedMotion()) {
+            page.animate([{ transform: from, opacity: fromOpacity }, { transform: 'none', opacity: 1 }], { duration: 520, easing: EASE_SPRING_SOFT });
+        }
+    }
+
+    onSwipe(root, {
+        start(dx, x0) {
+            if (!isPhone() || floors.length < 2 || x0 < EDGE_BACK) return false;
+            settle();
+            dragPage = pages[floorIndex];
+            pager.classList.add('is-moving');
+            return true;
+        },
+        move(dx) {
+            if (!dragPage) return;
+            const w = pager.clientWidth || window.innerWidth;
+            const target = floorIndex + (dx < 0 ? 1 : -1);
+            const ok = target >= 0 && target < floors.length;
+            const d = ok ? dragFollow(dx, w) : rubber(dx, w) * 0.22;
+            dragPage.style.transform = `translateX(${d}px)`;
+            dragPage.style.opacity = String(1 - Math.min(Math.abs(d) / w, 1) * 0.4);
+        },
+        end(dx, velocity) { finishDrag(decideStep(dx, velocity)); },
+        cancel() { finishDrag(0); }
+    });
+
+    // ---------- MÁY TÍNH (màn hình cảm ứng to): trang bám ngón tay như cũ ----------
     onSwipe(pager, {
         start(dx) {
+            if (isPhone()) return false; // điện thoại: để bộ vuốt ở trên lo
             const target = floorIndex + (dx < 0 ? 1 : -1);
             if (target < 0 || target >= floors.length) return false; // ở mép: nhường cho vuốt đổi tab
             clearTimeout(settleTimer);
@@ -286,7 +352,7 @@ export function mount(root, ctx) {
 
     seg.addEventListener('click', e => {
         const btn = e.target.closest('button');
-        if (btn) showFloor(Number(btn.dataset.index));
+        if (btn) goFloor(Number(btn.dataset.index));
     });
 
     $('#sceneChips', root).addEventListener('click', e => {
@@ -327,6 +393,8 @@ export function mount(root, ctx) {
     home.rooms.forEach(drawRoomMeta);
     drawHero();
     showFloor(floorIndex, false);
+    // Điện thoại: mở màn hình Nhà thì các khối nổi lên lần lượt
+    riseIn([$('#hero', root), $('.quick', root), ...$$('.room, .stairs', pages[floorIndex])], { from: 60 });
 
     return () => {
         offStore();

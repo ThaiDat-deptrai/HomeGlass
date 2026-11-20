@@ -1,17 +1,20 @@
 // =============================================================
 // MÀN HÌNH NHIỆT ĐỘ - theo dõi độ nóng của từng bộ điều khiển ESP
 // -------------------------------------------------------------
-// ESP32 có sẵn cảm biến đo nhiệt độ chip. Chip quá nóng có thể treo
-// hoặc hỏng -> cần theo dõi. Ngưỡng giống code ESP cũ:
-//   >= 55°C: hơi nóng     >= 60°C: quá nhiệt (ESP tự ngủ để nguội)
+// ESP32 có sẵn cảm biến đo nhiệt độ chip (đo LÕI chip nên luôn cao hơn
+// nhiệt độ phòng: ESP32-C3 chạy bình thường ~50-60°C). Ngưỡng GIỐNG firmware
+// (firmware/include/hg_config.h):
+//   >= 70°C: hơi nóng (HG_TEMP_WARN)   >= 80°C: quá nhiệt, ESP tự giảm sóng cho mát (HG_TEMP_HOT)
+// Lịch sử nhiệt độ được lưu trên máy (core/store.js): tải lại trang vẫn còn.
 // =============================================================
 
 import { html, render, $, $$ } from '../dom.js';
 import { createLineChart } from '../chart.js';
 import { rollNumber } from '../motion.js';
+import { isPhone } from '../swipe.js';
 
-const WARN = 55;
-const CRIT = 60;
+const WARN = 70;
+const CRIT = 80;
 const OFFLINE_MS = 30000; // quá 30 giây không có tin -> coi như mất kết nối
 const RANGE_KEY = 'hg.ui.range';
 
@@ -32,13 +35,36 @@ const pad2 = n => String(n).padStart(2, '0');
 const hhmm = t => `${pad2(new Date(t).getHours())}:${pad2(new Date(t).getMinutes())}`;
 
 function ago(t) {
-    const s = Math.round((Date.now() - t) / 1000);
+    const s = Math.max(0, Math.round((Date.now() - t) / 1000));
     if (s < 60) return `${s} giây trước`;
     if (s < 3600) return `${Math.round(s / 60)} phút trước`;
     return `${Math.round(s / 3600)} giờ trước`;
 }
 
-export function mount(root, { home, store }) {
+/** Tải số liệu nhiệt độ về máy (mở bằng Excel được). */
+function downloadCsv(nodes, store, [from, to]) {
+    const rows = [['Thời gian', 'ESP', 'Nhiệt độ (°C)']];
+    const stamp = t => {
+        const d = new Date(t);
+        return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+    };
+    const all = [];
+    nodes.forEach(n => (store.node(n.id)?.history || [])
+        .filter(p => p.t >= from && p.t <= to)
+        .forEach(p => all.push([p.t, n.name, p.v.toFixed(1)])));
+    all.sort((a, b) => a[0] - b[0]).forEach(([t, name, v]) => rows.push([stamp(t), name, v]));
+    // BOM để Excel đọc đúng tiếng Việt
+    const csv = '﻿' + rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const d = new Date();
+    a.download = `nhiet-do-esp-${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    return all.length;
+}
+
+export function mount(root, { home, store, toast }) {
     const nodes = [...home.nodes.values()];
 
     if (!nodes.length) {
@@ -85,25 +111,31 @@ export function mount(root, { home, store }) {
             <div id="chart"></div>
             <div class="chart-card__foot">
                 <span class="chart-card__hint"><i class="fa-solid fa-hand-pointer"></i>Chạm hoặc rê lên biểu đồ để xem từng thời điểm</span>
-                <button class="btn-pill" id="tableToggle"><i class="fa-solid fa-table"></i><span>Bảng số liệu</span></button>
+                <span class="chart-card__actions">
+                    <button class="btn-pill" id="csv" title="Tải số liệu về máy (mở bằng Excel)"><i class="fa-solid fa-file-arrow-down"></i><span>Tải file</span></button>
+                    <button class="btn-pill" id="tableToggle"><i class="fa-solid fa-table"></i><span>Bảng số liệu</span></button>
+                </span>
             </div>
             <div class="table-wrap" id="table" hidden></div>
         </section>
 
-        <h2 class="section-title">Từng bộ điều khiển</h2>
-        <div class="node-grid" id="nodes">
+        <div class="section-head">
+            <h2 class="section-title">Từng bộ điều khiển</h2>
+            <span class="snap-dots" id="dots" aria-hidden="true">${nodes.map(() => html`<i></i>`)}</span>
+        </div>
+        <div class="node-grid snap-row" id="nodes">
             ${nodes.map(n => html`
-                <article class="node card" data-node="${n.id}">
+                <article class="node card" data-node="${n.id}" style="--key: var(${colorOf.get(n.id)})">
                     <header class="node__head">
-                        <span class="legend__key" style="background: var(${colorOf.get(n.id)})"></span>
-                        <div class="node__title">
-                            <h3>${n.name}</h3>
-                            <span>${n.board}${roomsOf(n.id).length ? ' · ' + roomsOf(n.id).join(', ') : ''}</span>
-                        </div>
-                        <span class="badge" data-state="off"><i class="fa-solid"></i><span></span></span>
+                        <h3>${n.name}</h3>
+                        <span class="node__ago"></span>
                     </header>
                     <div class="node__temp"><span class="node__value">–</span><small>°C</small></div>
-                    <div class="node__range"><span class="node__minmax"></span><span class="node__ago"></span></div>
+                    <p class="node__state" data-state="off"><i class="fa-solid"></i><span></span></p>
+                    <footer class="node__foot">
+                        <span class="node__rooms">${roomsOf(n.id).length ? roomsOf(n.id).join(', ') : n.board}</span>
+                        <span class="node__minmax"></span>
+                    </footer>
                 </article>`)}
         </div>
     `);
@@ -167,16 +199,20 @@ export function mount(root, { home, store }) {
             const card = root.querySelector(`.node[data-node="${n.id}"]`);
             const state = statusOf(n);
             const last = store.node(n.id)?.last;
-            const badge = card.querySelector('.badge');
+            const badge = card.querySelector('.node__state');
             badge.dataset.state = state;
             badge.querySelector('i').className = `fa-solid ${STATUS[state].icon}`;
             badge.querySelector('span').textContent = STATUS[state].label;
-            card.querySelector('.node__value').textContent = last ? last.v.toFixed(1) : '–';
+            // Mất kết nối: không hiện số cũ như thể đang đúng
+            card.querySelector('.node__value').textContent = last && state !== 'off' ? last.v.toFixed(1) : '–';
+            card.classList.toggle('is-off', state === 'off');
             const pts = pointsIn(n, range);
-            card.querySelector('.node__minmax').textContent = pts.length
-                ? `Thấp ${Math.min(...pts.map(p => p.v)).toFixed(1)}° · Cao ${Math.max(...pts.map(p => p.v)).toFixed(1)}°`
-                : 'Chưa có dữ liệu';
-            card.querySelector('.node__ago').textContent = last ? ago(last.t) : '';
+            const lastSeen = last || pts[pts.length - 1];
+            card.querySelector('.node__minmax').innerHTML = pts.length
+                ? `<i class="fa-solid fa-arrow-down"></i>${Math.min(...pts.map(p => p.v)).toFixed(0)}° <i class="fa-solid fa-arrow-up"></i>${Math.max(...pts.map(p => p.v)).toFixed(0)}°`
+                : '';
+            card.querySelector('.node__ago').textContent = lastSeen ? ago(lastSeen.t) : '';
+            card.querySelector('.node__ago').title = lastSeen ? 'Tin gần nhất' : '';
             card.classList.toggle('is-hidden-series', hidden.has(n.id));
         });
     }
@@ -242,6 +278,29 @@ export function mount(root, { home, store }) {
         drawTable();
     });
 
+    $('#csv', root).addEventListener('click', () => {
+        const n = downloadCsv(nodes, store, windowNow());
+        toast?.(n ? `Đã tải ${n} số đo (${RANGES[rangeIndex].label} gần nhất)` : 'Chưa có số liệu để tải', n ? 'success' : 'error');
+    });
+
+    // ---------- Điện thoại: thẻ ESP vuốt ngang từng thẻ, chấm nhỏ cho biết đang ở thẻ nào ----------
+    const row = $('#nodes', root);
+    const dots = $$('#dots i', root);
+    let dotFrame = 0;
+    function drawDots() {
+        dotFrame = 0;
+        if (!isPhone()) return;
+        const cards = $$('.node', row);
+        const mid = row.scrollLeft + row.clientWidth / 2;
+        let best = 0;
+        cards.forEach((c, i) => {
+            if (Math.abs(c.offsetLeft + c.offsetWidth / 2 - mid) < Math.abs(cards[best].offsetLeft + cards[best].offsetWidth / 2 - mid)) best = i;
+        });
+        dots.forEach((d, i) => d.classList.toggle('is-on', i === best));
+    }
+    row.addEventListener('scroll', () => { if (!dotFrame) dotFrame = requestAnimationFrame(drawDots); }, { passive: true });
+    drawDots();
+
     // Dữ liệu mới về: gom lại, tối đa 1 lần vẽ mỗi giây cho nhẹ máy
     let timer = null;
     const offStore = store.subscribe(event => {
@@ -258,6 +317,7 @@ export function mount(root, { home, store }) {
     return () => {
         offStore();
         clearTimeout(timer);
+        cancelAnimationFrame(dotFrame);
         chart.destroy();
     };
 }

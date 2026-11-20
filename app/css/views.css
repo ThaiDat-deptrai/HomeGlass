@@ -999,21 +999,43 @@
     text-align: left;
 }
 
-/* Thẻ từng ESP */
+/* Thẻ từng ESP: gọn - tên + lúc báo tin / số to / tình trạng / phòng + thấp-cao */
+.section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
 .node-grid {
+    position: relative;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
     gap: var(--s-3);
 }
 
-@media (min-width: 720px) {
-    .node-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.node {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    padding: 14px 16px 14px 18px;
+    border-radius: var(--r-lg);
+    overflow: hidden;
+    transition: opacity 0.3s;
 }
 
-.node {
-    padding: 14px;
-    border-radius: var(--r-lg);
-    transition: opacity 0.3s;
+/* Vạch màu bên trái = màu của ESP trên biểu đồ */
+.node::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 14px;
+    bottom: 14px;
+    width: 4px;
+    border-radius: 0 4px 4px 0;
+    background: var(--key);
 }
 
 .node.is-hidden-series {
@@ -1022,56 +1044,32 @@
 
 .node__head {
     display: flex;
-    align-items: flex-start;
+    align-items: baseline;
+    justify-content: space-between;
     gap: 8px;
-    flex-wrap: wrap;
 }
 
-.node__head .legend__key {
-    margin-top: 9px;
-}
-
-.node__title {
-    flex: 1;
+.node__head h3 {
     min-width: 0;
-}
-
-.node__title h3 {
     font-size: 15px;
-    font-weight: 600;
-}
-
-.node__title span {
-    display: block;
-    font-size: 12px;
-    color: var(--text-3);
+    font-weight: 700;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 4px 9px;
-    border-radius: var(--r-pill);
+.node__ago {
+    flex: 0 0 auto;
     font-size: 11.5px;
-    font-weight: 600;
-    background: var(--icon-bg);
-    color: var(--text-2);
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
 }
 
-.badge[data-state="good"] i { color: var(--st-good); }
-.badge[data-state="warn"] i { color: var(--st-warn); }
-.badge[data-state="crit"] { background: color-mix(in srgb, var(--st-crit) 16%, transparent); }
-.badge[data-state="crit"] i { color: var(--st-crit); }
-.badge[data-state="off"] i { color: var(--text-3); }
-
 .node__temp {
-    margin: 10px 0 2px;
-    font-size: 32px;
+    margin: 6px 0 0;
+    font-size: 34px;
     font-weight: 700;
+    line-height: 1.1;
     letter-spacing: -0.03em;
     font-variant-numeric: tabular-nums;
 }
@@ -1082,15 +1080,108 @@
     color: var(--text-3);
 }
 
-.node__range {
+.node.is-off .node__temp {
+    color: var(--text-3);
+}
+
+.node__state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-2);
+}
+
+.node__state[data-state="good"] i { color: var(--st-good); }
+.node__state[data-state="warn"] i { color: var(--st-warn); }
+.node__state[data-state="crit"] { color: var(--st-crit); }
+.node__state[data-state="off"] { color: var(--text-3); }
+
+.node__foot {
     display: flex;
-    flex-wrap: wrap;
+    align-items: center;
     justify-content: space-between;
-    gap: 2px 10px;
+    gap: 10px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
     font-size: 12px;
     color: var(--text-3);
 }
 
+.node__rooms {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.node__minmax {
+    flex: 0 0 auto;
+    font-variant-numeric: tabular-nums;
+}
+
+.node__minmax i {
+    margin: 0 2px 0 4px;
+    font-size: 9px;
+    opacity: 0.8;
+}
+
+/* Chấm nhỏ cho biết đang xem thẻ nào (chỉ hiện trên điện thoại) */
+.snap-dots {
+    display: none;
+    gap: 5px;
+}
+
+.snap-dots i {
+    width: 6px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--text-3);
+    opacity: 0.35;
+    transition: width 0.4s var(--ease-spring), opacity 0.3s;
+}
+
+.snap-dots i.is-on {
+    width: 16px;
+    opacity: 0.9;
+}
+
+.chart-card__actions {
+    display: inline-flex;
+    gap: 8px;
+}
+
+/* Điện thoại: các thẻ ESP nằm 1 hàng ngang, vuốt 1 cái = sang đúng 1 thẻ (thẻ sau ló ra 1 chút) */
+@media (max-width: 1023px) {
+    .snap-row {
+        display: flex;
+        gap: 12px;
+        margin: 0 -16px;
+        padding: 4px 16px 14px;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scroll-snap-type: x mandatory;
+        scroll-padding: 0 16px;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .snap-row::-webkit-scrollbar {
+        display: none;
+    }
+
+    .snap-row > * {
+        flex: 0 0 min(78%, 300px);
+        scroll-snap-align: start;
+        scroll-snap-stop: always;
+    }
+
+    .snap-dots {
+        display: inline-flex;
+    }
+}
 @media (max-width: 420px) {
     .stats {
         gap: 8px;
@@ -1121,6 +1212,21 @@
 
 .sheet-overlay.show {
     background: rgba(8, 12, 28, 0.45);
+}
+
+/* Điện thoại: mở bảng trượt thì trang phía sau lùi vào + bo góc (giống iOS) */
+@media (max-width: 1023px) and (prefers-reduced-motion: no-preference) {
+    #app {
+        transition: transform 0.5s var(--ease-ios), filter 0.5s var(--ease-ios), border-radius 0.5s var(--ease-ios);
+        transform-origin: 50% 30vh;
+    }
+
+    html.has-sheet #app {
+        transform: scale(0.94);
+        border-radius: 22px;
+        filter: brightness(0.9);
+        overflow: hidden;
+    }
 }
 
 .sheet {
@@ -2215,8 +2321,152 @@ html.is-login .app {
     }
 }
 
-@media (min-width: 1400px) {
-    .node-grid {
-        grid-template-columns: repeat(6, minmax(0, 1fr));
-    }
+
+/* ================= PHÒNG & THIẾT BỊ: chân cắm, sắp xếp ================= */
+.page-head__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.field > span.field__label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.btn-pill.btn-sm {
+    padding: 5px 11px;
+    font-size: 12px;
+    gap: 6px;
+}
+
+/* Dòng "Cắm dây ... vào chân GPIO4 trên ESP 2" ngay dưới ô chọn kênh */
+.pin-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: -4px 0 14px;
+    padding: 10px 12px;
+    border-radius: var(--r-md);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-2);
+}
+
+.pin-hint i {
+    margin-top: 3px;
+    color: var(--accent);
+}
+
+.pin-hint strong {
+    color: var(--text);
+}
+
+.sort-btns {
+    display: inline-flex;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+
+.sort-btns .icon-btn:disabled {
+    opacity: 0.3;
+    pointer-events: none;
+}
+
+.manage-list li.sort-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.manage-list li.sort-row .manage-item {
+    flex: 1;
+    min-width: 0;
+    cursor: default;
+}
+
+.manage-rooms.is-sorting .manage-room {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent), var(--shadow);
+}
+/* Nhiều cầu thang (vd 2 cầu thang song song): mỗi cái 1 bảng, xếp dọc */
+.stairs-list {
+    display: grid;
+    gap: var(--s-5);
+}
+
+/* ================= CẬP NHẬT FIRMWARE ESP ================= */
+.fw-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.fw-ok {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--st-good);
+}
+
+.ota {
+    flex: 1;
+    display: grid;
+    gap: 6px;
+}
+
+.ota__text {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13.5px;
+    font-weight: 600;
+}
+
+.ota__bar {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--icon-bg);
+    overflow: hidden;
+}
+
+.ota__bar span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #fff));
+    transition: width 0.6s var(--ease-ios);
+}
+
+.ota small {
+    font-size: 12px;
+    color: var(--text-3);
+}
+
+.ota-msg {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.ota-msg i { margin-top: 3px; }
+.ota-msg--bad { color: var(--bad); }
+.ota-msg--good { color: var(--st-good); }
+
+.new-dot {
+    display: inline-block;
+    margin-right: 8px;
+    padding: 2px 8px;
+    border-radius: var(--r-pill);
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
 }

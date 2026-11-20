@@ -8,19 +8,24 @@
 //      tự GỬI LẠI nếu rớt gói, ESP phòng báo xong mới báo app (đúng sự thật).
 //   4. Theo dõi sức khỏe từng ESP: online/offline, nhiệt độ, lý do khởi động lại.
 //   5. Tự chạy lịch hẹn giờ (kể cả khi tắt app).
+//   6. Cập nhật firmware qua mạng cho chính nó và cho các ESP phòng (app bấm "Cập nhật").
 // Không bao giờ dùng delay() dài: mất mạng vẫn chạy lịch, vẫn điều khiển ESP phòng.
 // Giao thức MQTT: docs/giao-thuc.md. Gói ESP-NOW: lib/hgcore/hg_msgs.h
 // =============================================================
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <HTTPClient.h>
 #include <Preferences.h>
 #include <PubSubClient.h>
+#include <Update.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <esp_arduino_version.h>
 #include <esp_task_wdt.h>
+#include <mbedtls/md.h>
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <vector>
 
@@ -28,16 +33,14 @@
 #include "hg_config.h"
 #include "hg_link.h"
 #include "hg_outputs.h"
+#include "hg_secrets.h"
 #include "hg_sys.h"
 #include "schedules.h"
 
-#if __has_include("secrets.h")
-#include "secrets.h"
-#else
-#error "Thiếu firmware/include/secrets.h - chép secrets.example.h thành secrets.h rồi điền WiFi, MQTT"
-#endif
-
 using namespace hg;
+
+// WiFi, MQTT, khóa mạng: đọc từ flash (xem hg_secrets.h). KHÔNG nằm trong file cập nhật công khai.
+static Secrets sec;
 
 static const uint32_t WDT_TIMEOUT_S = 30;
 static const uint32_t CMD_RETRY_MS = 150;     // gửi lại lệnh nếu chưa có ACK: 150, 300, 450... ms
@@ -212,8 +215,8 @@ static bool parseNodeConfig(const String &json, Table &t, std::vector<String> &k
         else continue;
         e.ch = d["ch"] | 0;
         if (e.act != ACT_STAIRS && (e.ch < 1 || e.ch > 16)) continue;
-        e.on = d["on"] | 45;
-        e.off = d["off"] | 135;
+        e.on = d["on"] | 0;      // mặc định giống app: BẬT 0°, TẮT 180°, nghỉ 90°
+        e.off = d["off"] | 180;
         e.rest = d["rest"] | 90;
         if ((d["lo"] | 0) != 0) e.flags |= FLAG_RELAY_LOW;
         const char *k = d["k"] | "";
@@ -410,6 +413,346 @@ static void publishNodeHealth(uint8_t id) {
     publishJson(nodeTopic(id, "health"), d, true);
 }
 
+/** "Tôi ở đây" cho các ESP phòng, 2 giây 1 lần (kể cả lúc đang tải bản cập nhật). */
+static void beaconIfDue() {
+    if (!linkOk || millis() - beaconAt < HG_BEACON_MS) return;
+    beaconAt = millis();
+    MsgBeacon b = {};
+    b.wifiCh = net.channel();
+    b.flags = mqtt.connected() ? 1 : 0;
+    strncpy(b.fw, HG_FW_VERSION, sizeof(b.fw) - 1);
+    net.send(nullptr, MSG_BEACON, HG_ANY_ID, &b, sizeof(b));
+}
+
+// =============================================================
+// Cập nhật firmware qua mạng (OTA)
+// -------------------------------------------------------------
+// App gửi hg/node/<số>/ota {url, sha256, size, ver}. Trung tâm:
+//   - chỉ tải từ HG_OTA_URL_PREFIX, kiểm tra SHA-256 + loại chip rồi mới cài;
+//   - số 0 (chính nó): tải thẳng vào phân vùng dự phòng, cài xong khởi động bản mới;
+//   - ESP phòng: tải file vào PSRAM, gửi từng mẩu 200 byte qua ESP-NOW (có ký + mã hóa),
+//     ESP phòng tự kiểm SHA-256 lần nữa trước khi cài.
+// Tiến độ báo app qua hg/node/<số>/update {stage, pct, msg}.
+// Bản mới chạy lỗi -> tự quay về bản cũ (xem otaMarkValid trong hg_sys.h).
+// =============================================================
+static const uint16_t IMG_CHIP_S3 = 9, IMG_CHIP_C3 = 5;
+static const uint32_t NODE_APP_MAX = 0x140000;   // phân vùng app của ESP phòng (default.csv: 1,25MB)
+static const uint32_t OTA_ACK_MS = 300, OTA_BEGIN_ACK_MS = 1500, OTA_END_ACK_MS = 4000, OTA_BOOT_WAIT_MS = 90000;
+static const uint8_t OTA_TRIES = 12;
+
+enum OtaStage : uint8_t { OTA_IDLE, OTA_SEND_BEGIN, OTA_SEND_DATA, OTA_SEND_END, OTA_WAIT_BOOT };
+struct OtaJob {
+    OtaStage stage = OTA_IDLE;
+    uint8_t node = 0;
+    uint8_t *buf = nullptr;
+    uint32_t size = 0, off = 0;
+    uint8_t sha[32] = {0};
+    char ver[12] = {0};
+    bool waiting = false;
+    uint32_t sentAt = 0;
+    uint8_t tries = 0;
+    int lastPct = -1;
+};
+static OtaJob job;
+
+// Lệnh cập nhật từ app: ghi lại, làm ở loop() (không làm trong lúc đang đọc tin MQTT)
+struct OtaRequest { bool due = false; uint8_t node = 0; String url, ver; uint32_t size = 0; uint8_t sha[32] = {0}; };
+static OtaRequest otaReq;
+
+static void publishOta(uint8_t node, const char *stage, int pct, const String &msg) {
+    JsonDocument d;
+    d["stage"] = stage;
+    if (pct >= 0) d["pct"] = pct;
+    if (msg.length()) d["msg"] = msg;
+    publishJson(nodeTopic(node, "update"), d, false);
+    Serial.printf("[ota] ESP %u: %s %d%% %s\n", node, stage, pct, msg.c_str());
+}
+
+static bool parseSha(const char *hex, uint8_t out[32]) {
+    if (!hex || strlen(hex) != 64) return false;
+    for (int i = 0; i < 32; i++) {
+        char pair[3] = {hex[i * 2], hex[i * 2 + 1], 0};
+        char *end = nullptr;
+        long v = strtol(pair, &end, 16);
+        if (*end) return false;
+        out[i] = (uint8_t)v;
+    }
+    return true;
+}
+
+/** Loại chip ghi trong đầu file firmware (byte 12-13). 0xFFFF = không phải file firmware. */
+static uint16_t imageChip(const uint8_t *head) { return head[0] == 0xE9 ? (uint16_t)(head[12] | (head[13] << 8)) : 0xFFFF; }
+
+class Sha256 {
+public:
+    Sha256() {
+        mbedtls_md_init(&ctx_);
+        mbedtls_md_setup(&ctx_, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 0);
+        mbedtls_md_starts(&ctx_);
+    }
+    ~Sha256() { mbedtls_md_free(&ctx_); }
+    void update(const uint8_t *p, size_t n) { mbedtls_md_update(&ctx_, p, n); }
+    void finish(uint8_t out[32]) { mbedtls_md_finish(&ctx_, out); }
+private:
+    mbedtls_md_context_t ctx_;
+};
+
+/**
+ * Tải file, đưa từng đoạn cho sink(dữ liệu, độ dài, vị trí). Kiểm tra dung lượng + SHA-256.
+ * Trả về "" nếu ổn, ngược lại là lý do lỗi (dễ hiểu).
+ */
+static String download(uint8_t node, const String &url, uint32_t size, const uint8_t sha[32],
+                       const std::function<bool(const uint8_t *, size_t, uint32_t)> &sink) {
+    WiFiClientSecure client;
+    client.setInsecure();  // không cần kiểm chứng chỉ: file sai 1 bit là SHA-256 khác -> không cài
+    HTTPClient http;
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    http.setTimeout(15000);
+    esp_task_wdt_reset();
+    if (!http.begin(client, url)) return "Địa chỉ file lỗi";
+    int code = http.GET();
+    esp_task_wdt_reset();
+    if (code != 200) {
+        http.end();
+        return "Không tải được file (mã " + String(code) + ")";
+    }
+    int len = http.getSize();
+    if (len > 0 && (uint32_t)len != size) {
+        http.end();
+        return "Dung lượng file không khớp (app đang dùng danh sách cũ? tải lại trang)";
+    }
+    WiFiClient *s = http.getStreamPtr();
+    Sha256 hash;
+    static uint8_t chunk[4096];
+    uint32_t got = 0, lastData = millis();
+    int lastPct = -1;
+    while (got < size) {
+        esp_task_wdt_reset();
+        beaconIfDue();  // ESP phòng khỏi tưởng mất trung tâm
+        size_t avail = s->available();
+        if (!avail) {
+            if (!s->connected() || millis() - lastData > 15000) {
+                http.end();
+                return "Mất kết nối khi đang tải";
+            }
+            delay(5);
+            continue;
+        }
+        size_t want = std::min<size_t>(std::min<size_t>(avail, sizeof(chunk)), size - got);
+        int n = s->readBytes(chunk, want);
+        if (n <= 0) continue;
+        lastData = millis();
+        hash.update(chunk, n);
+        if (!sink(chunk, n, got)) {
+            http.end();
+            return "";  // sink tự báo lỗi
+        }
+        got += n;
+        int pct = (int)((uint64_t)got * 100 / size);
+        if (pct / 10 != lastPct / 10) {
+            lastPct = pct;
+            publishOta(node, "download", pct, "");
+            mqtt.loop();
+        }
+    }
+    http.end();
+    uint8_t digest[32];
+    hash.finish(digest);
+    if (memcmp(digest, sha, 32)) return "File tải về bị hỏng (sai mã SHA-256), không cài";
+    return "";
+}
+
+static void reboot();
+
+/** Cập nhật chính ESP trung tâm. */
+static void otaSelf(const OtaRequest &r) {
+    if (!Update.begin(r.size, U_FLASH)) {
+        publishOta(HG_MASTER_ID, "error", -1, "Không đủ chỗ trong flash cho bản mới");
+        return;
+    }
+    String sinkErr;
+    String err = download(HG_MASTER_ID, r.url, r.size, r.sha, [&](const uint8_t *p, size_t n, uint32_t at) {
+        if (at == 0 && n >= 16 && imageChip(p) != IMG_CHIP_S3) {
+            sinkErr = "File này không phải firmware ESP trung tâm (ESP32-S3)";
+            return false;
+        }
+        if (Update.write(const_cast<uint8_t *>(p), n) != n) {
+            sinkErr = String("Ghi flash lỗi: ") + Update.errorString();
+            return false;
+        }
+        return true;
+    });
+    if (sinkErr.length()) err = sinkErr;
+    if (err.length()) {
+        Update.abort();
+        publishOta(HG_MASTER_ID, "error", -1, err);
+        return;
+    }
+    if (!Update.end(true)) {
+        publishOta(HG_MASTER_ID, "error", -1, String("Cài bản mới lỗi: ") + Update.errorString());
+        return;
+    }
+    publishOta(HG_MASTER_ID, "reboot", 100, "Đã cài bản " + r.ver + ", đang khởi động lại");
+    for (int i = 0; i < 10; i++) { mqtt.loop(); delay(50); }  // cho tin kịp đi
+    reboot();
+}
+
+static void otaSend() {
+    NodeInfo &n = nodes[job.node];
+    switch (job.stage) {
+        case OTA_SEND_BEGIN: {
+            MsgOtaBegin b = {};
+            b.size = job.size;
+            memcpy(b.sha, job.sha, 32);
+            memcpy(b.ver, job.ver, sizeof(b.ver));
+            net.send(n.mac, MSG_OTA_BEGIN, job.node, &b, sizeof(b));
+            break;
+        }
+        case OTA_SEND_DATA: {
+            MsgOtaData d;
+            d.off = job.off;
+            uint16_t len = (uint16_t)std::min<uint32_t>(HG_OTA_CHUNK, job.size - job.off);
+            memcpy(d.data, job.buf + job.off, len);
+            net.send(n.mac, MSG_OTA_DATA, job.node, &d, 4 + len);
+            break;
+        }
+        case OTA_SEND_END:
+            net.send(n.mac, MSG_OTA_END, job.node, nullptr, 0);
+            break;
+        default:
+            return;
+    }
+    job.waiting = true;
+    job.sentAt = millis();
+}
+
+static void otaFinish(const char *stage, const String &msg) {
+    if (job.stage == OTA_IDLE) return;
+    uint8_t id = job.node;
+    bool ok = !strcmp(stage, "done");
+    if (!ok && job.stage != OTA_WAIT_BOOT && nodes[id].hasMac) net.send(nodes[id].mac, MSG_OTA_ABORT, id, nullptr, 0);
+    free(job.buf);
+    job = OtaJob();
+    publishOta(id, stage, ok ? 100 : -1, msg);
+}
+
+/** Cập nhật 1 ESP phòng: tải file vào PSRAM rồi chuyển sang gửi từng mẩu (otaLoop). */
+static void otaNodeStart(const OtaRequest &r) {
+    NodeInfo &n = nodes[r.node];
+    if (!n.hasMac) return publishOta(r.node, "error", -1, "ESP này chưa từng vào mạng");
+    if (!n.online) return publishOta(r.node, "error", -1, "ESP này đang mất kết nối");
+    if (r.size > NODE_APP_MAX) return publishOta(r.node, "error", -1, "File quá lớn cho ESP phòng");
+    uint8_t *buf = (uint8_t *)ps_malloc(r.size);
+    if (!buf) return publishOta(r.node, "error", -1, "ESP trung tâm hết bộ nhớ");
+    String err = download(r.node, r.url, r.size, r.sha, [&](const uint8_t *p, size_t len, uint32_t at) {
+        memcpy(buf + at, p, len);
+        return true;
+    });
+    if (!err.length() && imageChip(buf) != IMG_CHIP_C3) err = "File này không phải firmware ESP phòng (ESP32-C3)";
+    if (err.length()) {
+        free(buf);
+        publishOta(r.node, "error", -1, err);
+        return;
+    }
+    job = OtaJob();
+    job.stage = OTA_SEND_BEGIN;
+    job.node = r.node;
+    job.buf = buf;
+    job.size = r.size;
+    memcpy(job.sha, r.sha, 32);
+    strncpy(job.ver, r.ver.c_str(), sizeof(job.ver) - 1);
+    publishOta(r.node, "send", 0, "Đang gửi xuống ESP");
+    otaSend();
+}
+
+static void otaOnAck(uint8_t from, const MsgOtaAck &a) {
+    if (job.stage == OTA_IDLE || job.stage == OTA_WAIT_BOOT || from != job.node) return;
+    uint8_t expect = job.stage == OTA_SEND_BEGIN ? MSG_OTA_BEGIN : job.stage == OTA_SEND_DATA ? MSG_OTA_DATA : MSG_OTA_END;
+    if (a.stage != expect) return;  // trả lời muộn cho gói cũ
+    if (a.result == OTA_OK || a.result == OTA_RESEND) {
+        if (job.stage == OTA_SEND_BEGIN) {
+            job.stage = OTA_SEND_DATA;
+            job.off = 0;
+        } else if (job.stage == OTA_SEND_DATA) {
+            // Trả lời trùng cho mẩu đang chờ -> bỏ qua (tránh gửi đôi)
+            if (a.result == OTA_OK && a.next <= job.off) return;
+            job.off = std::min<uint32_t>(a.next, job.size);
+            if (job.off >= job.size) job.stage = OTA_SEND_END;
+            int pct = (int)((uint64_t)job.off * 100 / job.size);
+            if (pct / 5 != job.lastPct / 5) {
+                job.lastPct = pct;
+                publishOta(job.node, "send", pct, "");
+            }
+        } else {
+            job.stage = OTA_WAIT_BOOT;
+            job.waiting = false;
+            job.sentAt = millis();
+            publishOta(job.node, "reboot", 100, "ESP đã cài xong, đang khởi động bản mới");
+            return;
+        }
+        job.tries = 0;
+        otaSend();
+        return;
+    }
+    const char *why = a.result == OTA_ERR_HASH ? "ESP phòng thấy file bị hỏng (sai SHA-256), không cài"
+        : a.result == OTA_ERR_SIZE ? "File quá lớn cho ESP phòng"
+        : a.result == OTA_ERR_FLASH ? "ESP phòng ghi flash lỗi / file không phải firmware"
+        : "ESP phòng báo sai thứ tự (thử lại)";
+    otaFinish("error", why);
+}
+
+/** ESP phòng báo heartbeat: xem đã chạy bản mới chưa. */
+static void otaOnHeartbeat(uint8_t id, const MsgHeartbeat &hb) {
+    if (job.stage != OTA_WAIT_BOOT || id != job.node) return;
+    if (!strncmp(hb.fw, job.ver, sizeof(hb.fw))) otaFinish("done", "Đã lên bản " + String(job.ver));
+    else if (hb.uptime < 120) otaFinish("error", "ESP đã tự quay về bản cũ " + String(hb.fw).substring(0, 11) + " (bản mới chạy không ổn)");
+}
+
+static void otaLoop() {
+    if (otaReq.due) {
+        otaReq.due = false;
+        if (otaReq.node == HG_MASTER_ID) otaSelf(otaReq);
+        else otaNodeStart(otaReq);
+        otaReq = OtaRequest();
+    }
+    if (job.stage == OTA_IDLE) return;
+    uint32_t now = millis();
+    if (job.stage == OTA_WAIT_BOOT) {
+        if (now - job.sentAt > OTA_BOOT_WAIT_MS) otaFinish("error", "ESP không báo lại sau khi cài (đang mất kết nối?)");
+        return;
+    }
+    uint32_t wait = job.stage == OTA_SEND_END ? OTA_END_ACK_MS : job.stage == OTA_SEND_BEGIN ? OTA_BEGIN_ACK_MS : OTA_ACK_MS;
+    if (!job.waiting || now - job.sentAt < wait) return;
+    if (++job.tries > OTA_TRIES) {
+        if (job.stage == OTA_SEND_END) {
+            // Có thể ESP đã cài xong và khởi động lại nên không kịp trả lời: chờ nó báo phiên bản
+            job.stage = OTA_WAIT_BOOT;
+            job.sentAt = now;
+            return;
+        }
+        otaFinish("error", "ESP không trả lời (sóng yếu / đang mất kết nối?)");
+        return;
+    }
+    otaSend();
+}
+
+static void handleOtaCmd(uint8_t id, const uint8_t *payload, unsigned int len) {
+    JsonDocument d;
+    if (deserializeJson(d, payload, len)) return;
+    OtaRequest r;
+    r.node = id;
+    r.url = d["url"] | "";
+    r.ver = d["ver"] | "";
+    r.size = d["size"] | 0;
+    if (!r.url.startsWith(HG_OTA_URL_PREFIX) || r.url.indexOf("..") >= 0) return publishOta(id, "error", -1, "Địa chỉ file không được phép");
+    if (!parseSha(d["sha256"] | "", r.sha) || !r.size || !r.ver.length() || r.ver.length() > 11) return publishOta(id, "error", -1, "Thông tin bản cập nhật bị thiếu");
+    if (otaReq.due || job.stage != OTA_IDLE) return publishOta(id, "error", -1, "Đang cập nhật ESP " + String(otaReq.due ? otaReq.node : job.node) + ", chờ xong rồi thử lại");
+    if (id != HG_MASTER_ID && !nodes.count(id)) return publishOta(id, "error", -1, "Không có ESP số này");
+    publishOta(id, "download", 0, "Đang tải bản " + r.ver);
+    r.due = true;
+    otaReq = r;
+}
+
 static void handlePacket(const Packet &p) {
     uint8_t id = p.h.from;
     if (id == HG_MASTER_ID) return;  // có 2 ESP trung tâm? bỏ qua
@@ -430,6 +773,7 @@ static void handlePacket(const Packet &p) {
             n.hasHb = true;
             rememberMac(id, p.mac);
             markSeen(id);
+            otaOnHeartbeat(id, n.hb);
             float t = n.hb.temp10 / 10.0f;
             publishTemp(id, t);
             if (!n.bootReported) {
@@ -493,6 +837,14 @@ static void handlePacket(const Packet &p) {
             String text = toStr(p.data, strnlen((const char *)p.data, p.h.len));
             markSeen(id);
             publishLog(id, text);
+            break;
+        }
+        case MSG_OTA_ACK: {
+            if (p.h.len < sizeof(MsgOtaAck)) break;
+            MsgOtaAck a;
+            memcpy(&a, p.data, sizeof(a));
+            markSeen(id);
+            otaOnAck(id, a);
             break;
         }
         default:
@@ -618,6 +970,7 @@ static void onMqtt(char *topicC, uint8_t *payload, unsigned int len) {
         String what = topic.substring(b + 1);
         if (what == "config") handleNodeConfig((uint8_t)id, payload, len);
         else if (what == "cmd") handleNodeCmd((uint8_t)id, payload, len);
+        else if (what == "ota" && len) handleOtaCmd((uint8_t)id, payload, len);
         return;
     }
     if (topic == "hg/home/schedules") handleSchedules(payload, len);
@@ -645,9 +998,9 @@ static void connectMqtt() {
     String cid = "hg-master-" + WiFi.macAddress();
     cid.replace(":", "");
     const char *will = "{\"v\":1,\"online\":false}";
-    Serial.printf("[mqtt] đang nối %s...\n", HG_MQTT_HOST);
+    Serial.printf("[mqtt] đang nối %s...\n", sec.mqttHost.c_str());
     esp_task_wdt_reset();
-    bool ok = mqtt.connect(cid.c_str(), HG_MQTT_USER, HG_MQTT_PASS, nodeTopic(HG_MASTER_ID, "status").c_str(), 1, true, will, true);
+    bool ok = mqtt.connect(cid.c_str(), sec.mqttUser.c_str(), sec.mqttPass.c_str(), nodeTopic(HG_MASTER_ID, "status").c_str(), 1, true, will, true);
     esp_task_wdt_reset();
     if (!ok) {
         int st = mqtt.state();
@@ -663,9 +1016,14 @@ static void connectMqtt() {
     mqttBackoff = 1000;
     mqttAuthFail = false;
     publishStatus(HG_MASTER_ID, true);
-    const char *subs[] = {"hg/node/+/config", "hg/node/+/cmd", "hg/dev/+/+/set", "hg/dev/+/+/cfg", "hg/dev/+/+/attrs", "hg/home/schedules"};
+    const char *subs[] = {"hg/node/+/config", "hg/node/+/cmd", "hg/node/+/ota", "hg/dev/+/+/set", "hg/dev/+/+/cfg", "hg/dev/+/+/attrs", "hg/home/schedules"};
     for (const char *s : subs) mqtt.subscribe(s, 1);
     publishMasterHealth();
+    // Vừa cập nhật qua mạng và đã lên lại được máy chủ: chốt bản mới là tốt
+    if (otaPendingVerify()) {
+        otaMarkValid();
+        publishOta(HG_MASTER_ID, "done", 100, "Đã lên bản " HG_FW_VERSION);
+    }
     for (auto &kv : nodes) if (kv.first != HG_MASTER_ID && kv.second.online) publishStatus(kv.first, true);
     if (bootLogPending) {
         bootLogPending = false;
@@ -704,7 +1062,7 @@ static void wifiScanReport() {
     int n = WiFi.scanNetworks(false, true);
     esp_task_wdt_reset();
     Serial.printf("[wifi] ESP nhìn thấy %d WiFi (chỉ bắt được 2,4GHz):\n", n);
-    String want = usingBackup ? HG_WIFI_SSID2 : HG_WIFI_SSID;
+    String want = usingBackup ? sec.wifiSsid2 : sec.wifiSsid;
     String wantTrim = want;
     wantTrim.trim();
     for (int i = 0; i < n && i < 15; i++) {
@@ -725,8 +1083,8 @@ static void wifiBegin(bool backup) {
     if (backup != usingBackup) wifiSsidFix = "";
     usingBackup = backup;
     WiFi.disconnect();
-    String ssid = wifiSsidFix.length() ? wifiSsidFix : String(backup ? HG_WIFI_SSID2 : HG_WIFI_SSID);
-    WiFi.begin(ssid.c_str(), backup ? HG_WIFI_PASS2 : HG_WIFI_PASS);
+    String ssid = wifiSsidFix.length() ? wifiSsidFix : (backup ? sec.wifiSsid2 : sec.wifiSsid);
+    WiFi.begin(ssid.c_str(), (backup ? sec.wifiPass2 : sec.wifiPass).c_str());
     wifiLastOk = millis();
     Serial.printf("[wifi] đang nối \"%s\"\n", ssid.c_str());
 }
@@ -754,7 +1112,7 @@ static void wifiLoop() {
     // Mất WiFi 30 giây: thử lại (đổi sang WiFi dự phòng nếu có)
     if (millis() - wifiLastOk > 30000) {
         wifiReasonShown = 0;
-        wifiBegin(strlen(HG_WIFI_SSID2) ? !usingBackup : false);
+        wifiBegin(sec.wifiSsid2.length() ? !usingBackup : false);
     }
 }
 
@@ -805,6 +1163,12 @@ void setup() {
     outputs.onDone(onLocalDone);
     loadAll();
 
+    bool hasSecrets = loadSecrets(sec);
+    if (!sec.wifiSsid.length() || !sec.mqttHost.length()) {
+        Serial.println("[!] Chưa có WiFi / MQTT trong flash: nạp qua USB 1 lần bằng bản có secrets.h (docs/nap-code.md)");
+    }
+    Serial.printf("[boot] khóa từ %s\n", secretsBuiltIn() ? "secrets.h (bản nạp USB)" : "flash (bản cập nhật qua mạng)");
+
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);          // không ngủ: ESP-NOW nhận lệnh tức thì
     WiFi.setAutoReconnect(true);
@@ -815,15 +1179,15 @@ void setup() {
     });
     wifiBegin(false);
 
-    linkOk = net.begin(HG_NET_KEY, HG_MASTER_ID);
-    if (!linkOk) Serial.println("[!] HG_NET_KEY trong secrets.h sai (cần đúng 64 ký tự hex, khác toàn số 0)");
+    linkOk = hasSecrets && net.begin(sec.netKey.c_str(), HG_MASTER_ID);
+    if (!linkOk) Serial.println("[!] Khóa mạng HG_NET_KEY sai / chưa có (cần đúng 64 ký tự hex, khác toàn số 0)");
     for (auto &kv : nodes) if (kv.second.hasMac && kv.first != HG_MASTER_ID) net.addPeer(kv.second.mac);
 
     configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");  // giờ chuẩn UTC
 
     tls.setCACert(HG_ROOT_CA);
     tls.setHandshakeTimeout(20);
-    mqtt.setServer(HG_MQTT_HOST, HG_MQTT_PORT);
+    mqtt.setServer(sec.mqttHost.c_str(), sec.mqttPort);
     mqtt.setBufferSize(16384);
     mqtt.setKeepAlive(30);
     mqtt.setSocketTimeout(10);
@@ -855,13 +1219,13 @@ void loop() {
     Packet p;
     while (net.poll(p)) handlePacket(p);
 
-    if (linkOk && now - beaconAt >= HG_BEACON_MS) {
-        beaconAt = now;
-        MsgBeacon b = {};
-        b.wifiCh = net.channel();
-        b.flags = mqtt.connected() ? 1 : 0;
-        strncpy(b.fw, HG_FW_VERSION, sizeof(b.fw) - 1);
-        net.send(nullptr, MSG_BEACON, HG_ANY_ID, &b, sizeof(b));
+    beaconIfDue();
+    otaLoop();
+
+    // Bản vừa cập nhật mà 10 phút chưa lên được máy chủ -> coi như hỏng, quay về bản cũ
+    if (otaPendingVerify() && uptimeSec() > 600) {
+        Serial.println("[ota] bản mới không kết nối được máy chủ sau 10 phút -> quay về bản cũ");
+        otaRollback();
     }
 
     pendingLoop();

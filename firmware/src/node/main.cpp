@@ -14,23 +14,22 @@
 // =============================================================
 #include <Arduino.h>
 #include <Preferences.h>
+#include <Update.h>
 #include <WiFi.h>
 #include <esp_arduino_version.h>
 #include <esp_task_wdt.h>
 #include <esp_wifi.h>
+#include <mbedtls/md.h>
 
 #include "hg_config.h"
 #include "hg_link.h"
 #include "hg_outputs.h"
+#include "hg_secrets.h"
 #include "hg_sys.h"
 
-#if __has_include("secrets.h")
-#include "secrets.h"
-#else
-#error "Thiếu firmware/include/secrets.h - chép secrets.example.h thành secrets.h (ESP phòng chỉ cần HG_NET_KEY)"
-#endif
-
 using namespace hg;
+
+static Secrets sec;  // ESP phòng chỉ cần khóa mạng (đọc từ flash, xem hg_secrets.h)
 
 static const uint32_t WDT_TIMEOUT_S = 20;
 static const uint32_t SCAN_DWELL_MS = 260;      // nghe mỗi kênh bao lâu khi dò tìm trung tâm
@@ -199,6 +198,11 @@ static void onBeacon(const Packet &p) {
         uint8_t ch = net.channel();
         if (ch != savedCh) { savedCh = ch; prefs.putUChar("ch", ch); }
         Serial.printf("[link] đã thấy ESP trung tâm ở kênh %u\n", ch);
+        // Bản vừa cập nhật qua mạng đã nói chuyện được với trung tâm -> chốt là tốt
+        if (otaPendingVerify()) {
+            otaMarkValid();
+            Serial.println("[ota] bản mới chạy ổn, đã chốt");
+        }
         sendHello();
         hbAt = millis() - HG_HEARTBEAT_MS + 300;  // heartbeat ngay sau đó
     }
@@ -268,6 +272,95 @@ static void onNodeCmd(const Packet &p) {
 }
 
 // =============================================================
+// Nhận bản cập nhật từ trung tâm (OTA qua ESP-NOW)
+// -------------------------------------------------------------
+// Ghi vào phân vùng dự phòng (bản đang chạy KHÔNG bị đụng tới), tự tính SHA-256,
+// khớp với mã trung tâm gửi thì mới cài + khởi động lại. Sai -> bỏ, chạy tiếp bản cũ.
+// Bản mới phải thấy trung tâm trong 5 phút, không thì tự quay về bản cũ.
+// =============================================================
+static struct {
+    bool active = false;
+    uint32_t size = 0, next = 0, lastAt = 0;
+    uint8_t sha[32] = {0};
+    char ver[12] = {0};
+    mbedtls_md_context_t md;
+} ota;
+
+static void otaReply(uint8_t stage, uint8_t result) {
+    MsgOtaAck a = {stage, result, ota.next};
+    sendToMaster(MSG_OTA_ACK, &a, sizeof(a));
+}
+
+static void otaStop() {
+    if (!ota.active) return;
+    ota.active = false;
+    Update.abort();
+    mbedtls_md_free(&ota.md);
+}
+
+static void onOtaBegin(const Packet &p) {
+    if (p.h.len < sizeof(MsgOtaBegin)) return;
+    MsgOtaBegin b;
+    memcpy(&b, p.data, sizeof(b));
+    // Trung tâm gửi lại BEGIN (mất trả lời) cho đúng bản đang nhận: báo lại vị trí, không làm lại từ đầu
+    if (ota.active && ota.size == b.size && !memcmp(ota.sha, b.sha, 32) && ota.next == 0) return otaReply(MSG_OTA_BEGIN, OTA_OK);
+    otaStop();
+    ota.next = 0;
+    if (!Update.begin(b.size, U_FLASH)) return otaReply(MSG_OTA_BEGIN, OTA_ERR_SIZE);
+    mbedtls_md_init(&ota.md);
+    mbedtls_md_setup(&ota.md, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 0);
+    mbedtls_md_starts(&ota.md);
+    ota.active = true;
+    ota.size = b.size;
+    ota.lastAt = millis();
+    memcpy(ota.sha, b.sha, 32);
+    memcpy(ota.ver, b.ver, sizeof(ota.ver));
+    ota.ver[sizeof(ota.ver) - 1] = 0;
+    Serial.printf("[ota] nhận bản %s (%u byte)\n", ota.ver, (unsigned)ota.size);
+    otaReply(MSG_OTA_BEGIN, OTA_OK);
+}
+
+static void onOtaData(const Packet &p) {
+    if (!ota.active) return otaReply(MSG_OTA_DATA, OTA_ERR_STATE);
+    if (p.h.len <= 4 || p.h.len > sizeof(MsgOtaData)) return;
+    MsgOtaData d;
+    memcpy(&d, p.data, p.h.len);
+    uint32_t len = p.h.len - 4;
+    ota.lastAt = millis();
+    if (d.off != ota.next) return otaReply(MSG_OTA_DATA, d.off < ota.next ? OTA_OK : OTA_RESEND);  // trùng / thiếu mẩu
+    if (ota.next + len > ota.size || Update.write(d.data, len) != len) {
+        otaStop();
+        return otaReply(MSG_OTA_DATA, OTA_ERR_FLASH);
+    }
+    mbedtls_md_update(&ota.md, d.data, len);
+    ota.next += len;
+    otaReply(MSG_OTA_DATA, OTA_OK);
+}
+
+static void onOtaEnd() {
+    if (!ota.active || ota.next != ota.size) return otaReply(MSG_OTA_END, OTA_ERR_STATE);
+    uint8_t digest[32];
+    mbedtls_md_finish(&ota.md, digest);
+    if (memcmp(digest, ota.sha, 32)) {
+        otaStop();
+        sendLog("Bản cập nhật nhận được bị hỏng (sai SHA-256), giữ bản cũ");
+        return otaReply(MSG_OTA_END, OTA_ERR_HASH);
+    }
+    mbedtls_md_free(&ota.md);
+    ota.active = false;
+    if (!Update.end(true)) {
+        Update.abort();
+        return otaReply(MSG_OTA_END, OTA_ERR_FLASH);
+    }
+    otaReply(MSG_OTA_END, OTA_OK);
+    Serial.printf("[ota] đã cài bản %s, khởi động lại\n", ota.ver);
+    delay(150);
+    otaReply(MSG_OTA_END, OTA_OK);  // gửi 2 lần cho chắc
+    delay(150);
+    ESP.restart();
+}
+
+// =============================================================
 // Đặt số ESP qua cổng USB (chỉ cần làm 1 lần)
 // =============================================================
 static void serialLoop() {
@@ -333,9 +426,9 @@ void setup() {
         Serial.println(">>> Chưa đặt số ESP. Gõ số (vd: 3) rồi Enter. <<<");
         led.set(LED_SOLID);
     }
-    linkOk = net.begin(HG_NET_KEY, nodeId ? nodeId : 254);
+    linkOk = loadSecrets(sec) && net.begin(sec.netKey.c_str(), nodeId ? nodeId : 254);
     if (!linkOk) {
-        Serial.println("[!] HG_NET_KEY trong secrets.h sai (cần 64 ký tự hex, giống hệt ESP trung tâm)");
+        Serial.println("[!] Khóa mạng HG_NET_KEY sai / chưa có (cần 64 ký tự hex, giống hệt ESP trung tâm). Nạp USB bản có secrets.h 1 lần.");
         led.set(LED_ERROR);
     }
     if (prefs.getBytesLength("mm") == 6) {
@@ -372,6 +465,12 @@ void loop() {
         default: break;
     }
 
+    // Bản vừa cập nhật mà 5 phút không thấy trung tâm -> coi như hỏng, quay về bản cũ
+    if (otaPendingVerify() && uptimeSec() > 300) {
+        Serial.println("[ota] bản mới không thấy trung tâm sau 5 phút -> quay về bản cũ");
+        otaRollback();
+    }
+
     if (nodeId == 0 || !linkOk) { delay(5); return; }  // chưa đặt số / sai khóa: chỉ chờ
 
     Packet p;
@@ -381,8 +480,18 @@ void loop() {
             case MSG_CONFIG: if (p.h.from == HG_MASTER_ID) onConfig(p); break;
             case MSG_CMD: if (p.h.from == HG_MASTER_ID) onCmd(p); break;
             case MSG_NODECMD: if (p.h.from == HG_MASTER_ID) onNodeCmd(p); break;
+            case MSG_OTA_BEGIN: if (p.h.from == HG_MASTER_ID) onOtaBegin(p); break;
+            case MSG_OTA_DATA: if (p.h.from == HG_MASTER_ID) onOtaData(p); break;
+            case MSG_OTA_END: if (p.h.from == HG_MASTER_ID) onOtaEnd(); break;
+            case MSG_OTA_ABORT: if (p.h.from == HG_MASTER_ID) otaStop(); break;
             default: break;
         }
+    }
+
+    // Đang nhận bản cập nhật mà trung tâm im 30 giây -> hủy, chạy tiếp bản cũ
+    if (ota.active && (int32_t)(millis() - ota.lastAt) > 30000) {
+        otaStop();
+        Serial.println("[ota] trung tâm ngừng gửi, hủy cập nhật");
     }
 
     // Mất beacon quá lâu -> dò lại kênh (router đổi kênh, trung tâm khởi động lại...)

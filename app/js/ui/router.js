@@ -11,7 +11,7 @@
 // =============================================================
 
 import { onSwipe, decide, rubber } from './swipe.js';
-import { reducedMotion, spring, EASE_SPRING } from './motion.js';
+import { reducedMotion, spring, EASE_SPRING, hop, riseIn } from './motion.js';
 import { beginTransition } from './transition.js';
 import { logError } from '../core/errlog.js';
 
@@ -42,9 +42,12 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
         return Math.sign(tabIndex(to) - tabIndex(from));
     }
 
+    let paintedIndex = -1;
     function paintTabbar(path, progress = null) {
         const i = tabIndex(path);
         links.style.setProperty('--i', progress ?? i);
+        if (paintedIndex !== -1 && paintedIndex !== i) hop(linkEls[i]?.querySelector('i')); // icon nhún lên (điện thoại)
+        paintedIndex = i;
         linkEls.forEach(a => {
             if (a.dataset.path === tabs[i]) a.setAttribute('aria-current', 'page');
             else a.removeAttribute('aria-current');
@@ -62,9 +65,12 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
      * màn hình nào lỗi thì chỉ màn hình đó hiện thẻ "gặp sự cố" (kèm nút thử lại),
      * thanh điều hướng và các màn hình khác vẫn dùng bình thường. Lỗi được ghi vào nhật ký.
      */
-    function safeMount(path, view) {
+    function safeMount(path, view, animate = false) {
         try {
-            return routes[path].mount(view, ctx);
+            const cleanup = routes[path].mount(view, ctx);
+            // Điện thoại: các khối nổi lên lần lượt khi mở màn hình (màn hình Nhà tự làm kiểu riêng)
+            if (animate && path !== '/') requestAnimationFrame(() => riseIn(view.children, { from: 40, step: 45 }));
+            return cleanup;
         } catch (e) {
             logError(`Mở màn hình ${path}`, e);
             view.innerHTML = `
@@ -88,11 +94,11 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
     }
 
     /** Gắn thẳng (không hiệu ứng): lần đầu mở app, hoặc vẽ lại. */
-    function mountDirect(path) {
+    function mountDirect(path, animate = false) {
         safeCleanup(current?.cleanup);
         const view = newView();
         root.replaceChildren(view, credit);
-        current = { path, view, cleanup: safeMount(path, view) };
+        current = { path, view, cleanup: safeMount(path, view, animate) };
         paintTabbar(path);
     }
 
@@ -102,7 +108,7 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
     function startMove(path, dir) {
         const view = newView();
         const t = beginTransition(current.view, view, dir);
-        const cleanup = safeMount(path, view);
+        const cleanup = safeMount(path, view, true);
         moving = { t, path, view, cleanup, dir, anim: null, p: 0 };
         return moving;
     }
@@ -260,7 +266,7 @@ export function createRouter({ root, tabbar, routes, tabs, ctx }) {
         tabbar.style.setProperty('--my', `${e.clientY - r.top}px`);
     });
 
-    mountDirect(pathNow());
+    mountDirect(pathNow(), true);
 
     const api = {
         current: () => current?.path,

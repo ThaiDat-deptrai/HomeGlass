@@ -1,5 +1,6 @@
 #include "hg_sys.h"
 
+#include <esp_ota_ops.h>
 #include <esp_system.h>
 #include <esp_timer.h>
 #include "hg_config.h"
@@ -114,4 +115,31 @@ const char *resetText(uint8_t code) {
 
 uint32_t uptimeSec() { return (uint32_t)(esp_timer_get_time() / 1000000ULL); }
 
+// ---------- Bản mới sau khi cập nhật: chạy thử rồi mới "chốt" ----------
+static int8_t pendingCache = -1;  // đọc flash 1 lần, các lần sau dùng lại
+
+bool otaPendingVerify() {
+    if (pendingCache < 0) {
+        esp_ota_img_states_t st;
+        const esp_partition_t *running = esp_ota_get_running_partition();
+        pendingCache = running && esp_ota_get_state_partition(running, &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY;
+    }
+    return pendingCache == 1;
+}
+
+void otaMarkValid() {
+    if (!otaPendingVerify()) return;
+    if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) pendingCache = 0;
+}
+
+void otaRollback() {
+    // Bản mới chạy không ổn: đánh dấu hỏng + khởi động lại -> bootloader chạy lại bản cũ
+    if (otaPendingVerify()) esp_ota_mark_app_invalid_rollback_and_reboot();
+    esp_restart();
+}
+
 }  // namespace hg
+
+// Arduino gọi hàm này lúc khởi động. Trả về true = "để code tự chốt bản mới sau khi chạy ổn",
+// thay vì chốt ngay. Bản mới lỗi (treo, không kết nối được) -> khởi động lại là về bản cũ.
+extern "C" bool verifyRollbackLater() { return true; }

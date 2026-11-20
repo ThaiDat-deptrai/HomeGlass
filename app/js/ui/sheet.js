@@ -11,7 +11,7 @@ import { EASE_IOS } from './motion.js';
  * - body: hàm dựng nội dung
  * - footer: hàm dựng hàng nút dưới cùng (không bắt buộc)
  */
-export function openSheet({ title, body, footer }) {
+export function openSheet({ title, body, footer, onClose }) {
     const root = document.getElementById('sheet-root');
     const overlay = document.createElement('div');
     overlay.className = 'sheet-overlay';
@@ -35,6 +35,8 @@ export function openSheet({ title, body, footer }) {
         if (closed) return;
         closed = true;
         overlay.classList.remove('show');
+        if (!root.querySelector('.sheet-overlay.show')) document.documentElement.classList.remove('has-sheet');
+        try { onClose?.(); } catch (e) { /* bỏ qua */ }
         document.removeEventListener('keydown', onKey);
         setTimeout(() => overlay.remove(), 360);
     }
@@ -93,6 +95,9 @@ export function openSheet({ title, body, footer }) {
     else foot.remove();
 
     root.appendChild(overlay);
-    requestAnimationFrame(() => overlay.classList.add('show'));
+    requestAnimationFrame(() => {
+        overlay.classList.add('show');
+        document.documentElement.classList.add('has-sheet'); // trang sau lùi vào (điện thoại)
+    });
     return close;
 }

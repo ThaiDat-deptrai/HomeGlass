@@ -28,7 +28,13 @@ enum MsgType : uint8_t {
     MSG_HEARTBEAT = 7,  // ESP phòng -> trung tâm: sức khỏe + trạng thái mọi kênh
     MSG_NODECMD = 8,    // trung tâm -> ESP phòng: khởi động lại, nháy đèn, xóa cấu hình
     MSG_LOG = 9,        // ESP phòng -> trung tâm: báo lỗi (hiện trong Nhật ký lỗi của app)
-    // 20..29: dành cho cập nhật firmware qua mạng (OTA) - bước sau
+    // ----- Cập nhật firmware qua mạng (OTA): trung tâm gửi file cho ESP phòng từng mẩu -----
+    // ESP phòng bản cũ không biết các loại gói này -> tự bỏ qua (không hỏng gì).
+    MSG_OTA_BEGIN = 20, // trung tâm -> phòng: chuẩn bị nhận file (dung lượng + mã SHA-256)
+    MSG_OTA_DATA = 21,  // trung tâm -> phòng: 1 mẩu file (vị trí + dữ liệu)
+    MSG_OTA_END = 22,   // trung tâm -> phòng: hết file -> kiểm tra SHA-256, khởi động bản mới
+    MSG_OTA_ACK = 23,   // phòng -> trung tâm: đã nhận tới đâu / lỗi gì
+    MSG_OTA_ABORT = 24, // trung tâm -> phòng: hủy cập nhật, giữ bản đang chạy
 };
 
 enum Act : uint8_t { ACT_NONE = 0, ACT_SERVO = 1, ACT_RELAY = 2, ACT_STAIRS = 3 };
@@ -82,12 +88,27 @@ struct MsgHeartbeat {
 };
 struct MsgNodeCmd { uint8_t cmd; uint8_t arg; };
 struct MsgLog { char text[180]; };
+
+// ----- OTA -----
+static const uint16_t HG_OTA_CHUNK = 200;   // byte dữ liệu mỗi gói
+enum OtaResult : uint8_t {
+    OTA_OK = 0,
+    OTA_RESEND = 1,     // thiếu mẩu: gửi lại từ vị trí "next"
+    OTA_ERR_FLASH = 2,  // ghi flash lỗi / file không phải firmware
+    OTA_ERR_HASH = 3,   // SHA-256 không khớp: file hỏng -> KHÔNG cài
+    OTA_ERR_SIZE = 4,   // file quá lớn cho phân vùng
+    OTA_ERR_STATE = 5,  // chưa bắt đầu / sai thứ tự
+};
+struct MsgOtaBegin { uint32_t size; uint8_t sha[32]; char ver[12]; };
+struct MsgOtaData { uint32_t off; uint8_t data[HG_OTA_CHUNK]; };   // độ dài thật = h.len - 4
+struct MsgOtaAck { uint8_t stage; uint8_t result; uint32_t next; }; // stage = loại gói đang trả lời
 #pragma pack(pop)
 
 static const size_t HG_TAG_LEN = 8;
 static const size_t HG_MAX_PAYLOAD = 250 - sizeof(LinkHeader) - HG_TAG_LEN;
 static_assert(sizeof(Table) <= HG_MAX_PAYLOAD, "Bảng kênh quá lớn cho 1 gói ESP-NOW");
 static_assert(sizeof(MsgLog) <= HG_MAX_PAYLOAD, "Gói log quá lớn");
+static_assert(sizeof(MsgOtaData) <= HG_MAX_PAYLOAD, "Mẩu OTA quá lớn");
 
 /** CRC32 bảng kênh (chỉ tính các dòng đang dùng). */
 uint32_t tableCrc(const Table &t);

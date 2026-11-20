@@ -17,6 +17,50 @@ const CONFIRM_TIMEOUT_MS = 4000;
 const HISTORY_MS = 24 * 3600 * 1000; // giữ lịch sử nhiệt độ 24 giờ
 const MAX_POINTS = 6000;             // tối đa số điểm mỗi ESP
 
+// Lưu lịch sử nhiệt độ trên máy: tải lại trang / mở lại app vẫn còn biểu đồ.
+// Gọn: mỗi ESP tối đa 1 điểm / phút, dạng [giây, °C x10]. 7 ESP x 24 giờ ≈ 150 KB.
+const SAVE_KEY = 'hg.temp.history';
+const SAVE_EVERY_MS = 60 * 1000;
+const SAVE_STEP_S = 60;
+
+function loadSavedHistory() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(SAVE_KEY));
+        if (!saved || saved.v !== 1 || typeof saved.nodes !== 'object') return new Map();
+        const cutoff = Date.now() - HISTORY_MS;
+        const out = new Map();
+        Object.entries(saved.nodes).forEach(([id, rows]) => {
+            if (!Array.isArray(rows)) return;
+            const pts = rows
+                .filter(r => Array.isArray(r) && Number.isFinite(r[0]) && Number.isFinite(r[1]))
+                .map(([s, v10]) => ({ t: s * 1000, v: v10 / 10 }))
+                .filter(p => p.t >= cutoff && p.t <= Date.now() + 60000);
+            if (pts.length) out.set(Number(id), pts);
+        });
+        return out;
+    } catch (e) {
+        return new Map();
+    }
+}
+
+function saveHistory(nodes) {
+    const out = {};
+    nodes.forEach((n, id) => {
+        const rows = [];
+        let lastS = -Infinity;
+        n.history.forEach(p => {
+            const s = Math.round(p.t / 1000);
+            if (s - lastS < SAVE_STEP_S) return;
+            lastS = s;
+            rows.push([s, Math.round(p.v * 10)]);
+        });
+        if (rows.length) out[id] = rows;
+    });
+    try {
+        localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 1, nodes: out }));
+    } catch (e) { /* đầy bộ nhớ: bỏ qua, lần sau thử lại */ }
+}
+
 export function createStore(initialHome, transport) {
     /** key -> { on: true | false | null (chưa rõ), pending: boolean } */
     const states = new Map();
@@ -60,6 +104,21 @@ export function createStore(initialHome, transport) {
     }
 
     syncHome(initialHome);
+
+    // Bản thật: lấy lại lịch sử nhiệt độ đã lưu + lưu định kỳ (bản demo tự sinh số liệu, không cần)
+    const persist = transport.name !== 'demo';
+    if (persist) {
+        loadSavedHistory().forEach((pts, id) => {
+            const n = nodes.get(id);
+            if (!n) return;
+            n.history = pts;
+            n.last = null; // điểm cũ: chưa coi là "đang chạy" cho tới khi có tin mới
+        });
+        const save = () => saveHistory(nodes);
+        setInterval(save, SAVE_EVERY_MS);
+        document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+        window.addEventListener('pagehide', save);
+    }
 
     // ----- Transport báo về -----
     transport.connect({
@@ -184,6 +243,18 @@ export function createStore(initialHome, transport) {
 
         /** Lệnh cho 1 ESP: 'identify' (nháy đèn) | 'reboot' | 'resync'. Trả về false nếu chưa kết nối. */
         nodeCommand: (nodeId, cmd) => transport.command?.(nodeId, cmd) ?? false,
+
+        /** Cập nhật firmware 1 ESP qua mạng. false = chưa kết nối / bản demo. */
+        nodeUpdate(nodeId, info) {
+            if (status !== 'online' || typeof transport.ota !== 'function') return false;
+            const n = nodes.get(nodeId);
+            if (n) {
+                n.ota = { stage: 'request', pct: 0, msg: 'Đang gửi yêu cầu…', at: Date.now() };
+                emit({ type: 'node', nodeId });
+            }
+            return transport.ota(nodeId, info);
+        },
+        canUpdate: typeof transport.ota === 'function',
 
         /** Chỉ dùng khi thử (demo): giả lập cảm biến thấy người. */
         simulate: (key, detail) => transport.simulate?.(key, detail),

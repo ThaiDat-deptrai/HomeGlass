@@ -29,7 +29,7 @@ function choice(id, options, value) {
 
 export function mountStairs(host, { home, store, settings, toast }, device) {
     const key = device.key;
-    const steps = device.steps || 15;
+    const steps = device.steps || 13;
     const location = home.raw.location;
     const driver = DRIVERS[device.driver] ? device.driver : 'mcp23017';
     const dimmable = isDimmable(driver); // PCA9685: chỉnh sáng được; MCP23017: chỉ bật/tắt

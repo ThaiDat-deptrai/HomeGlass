@@ -85,7 +85,7 @@ function compactDevice(d) {
         if (out.actuator === 'relay' && d.relayLow === true) out.relayLow = true;
     }
     if (out.type === 'stairs') {
-        out.steps = d.steps ?? 15;
+        out.steps = d.steps ?? 13;
         out.driver = d.driver ?? 'mcp23017';
         delete out.ch; // cầu thang dùng mạch mở rộng riêng, không dùng 1 relay
     }
@@ -173,6 +173,31 @@ export function removeDevice(data, key) {
     const [roomId, deviceId] = splitKey(key);
     const room = findRoom(next, roomId);
     room.devices = room.devices.filter(d => d.id !== deviceId);
+    return next;
+}
+
+// ---------- Sắp xếp (thứ tự hiện trên màn hình Nhà) ----------
+
+/** Đổi chỗ phòng lên (-1) / xuống (+1) trong cùng tầng. */
+export function moveRoom(data, roomId, dir) {
+    const next = clone(data);
+    const floor = next.floors.find(f => (f.rooms || []).some(r => r.id === roomId));
+    const i = floor.rooms.findIndex(r => r.id === roomId);
+    const j = i + dir;
+    if (j < 0 || j >= floor.rooms.length) return next;
+    [floor.rooms[i], floor.rooms[j]] = [floor.rooms[j], floor.rooms[i]];
+    return next;
+}
+
+/** Đổi chỗ thiết bị lên (-1) / xuống (+1) trong cùng phòng. Key không đổi. */
+export function moveDevice(data, key, dir) {
+    const next = clone(data);
+    const [roomId, deviceId] = splitKey(key);
+    const room = findRoom(next, roomId);
+    const i = room.devices.findIndex(d => d.id === deviceId);
+    const j = i + dir;
+    if (j < 0 || j >= room.devices.length) return next;
+    [room.devices[i], room.devices[j]] = [room.devices[j], room.devices[i]];
     return next;
 }
 

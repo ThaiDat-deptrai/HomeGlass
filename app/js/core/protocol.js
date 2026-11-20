@@ -32,6 +32,8 @@ export const topics = {
     nodeLog: id => `${ROOT}/node/${id}/log`,          // ESP báo lỗi
     nodeConfig: id => `${ROOT}/node/${id}/config`,    // bảng kênh -> thiết bị của ESP đó (giữ lại)
     nodeCmd: id => `${ROOT}/node/${id}/cmd`,          // app -> ESP: reboot | identify | resync
+    nodeOta: id => `${ROOT}/node/${id}/ota`,          // app -> trung tâm: cập nhật firmware ESP này {url, sha256, size, ver}
+    nodeUpdate: id => `${ROOT}/node/${id}/update`,    // trung tâm -> app: tiến độ cập nhật {stage, pct, msg}
 
     // ----- Dữ liệu chung của cả nhà (giữ lại, đồng bộ giữa các điện thoại) -----
     doc: name => `${ROOT}/home/${name}`               // config | scenes | schedules
@@ -46,6 +48,7 @@ export const APP_SUBSCRIPTIONS = [
     `${ROOT}/node/+/temp`,
     `${ROOT}/node/+/health`,
     `${ROOT}/node/+/log`,
+    `${ROOT}/node/+/update`,
     `${ROOT}/home/+`
 ];
 

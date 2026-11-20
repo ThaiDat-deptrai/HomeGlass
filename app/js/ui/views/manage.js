@@ -13,14 +13,37 @@ import * as edit from '../../core/homeData.js';
 import { DRIVERS } from '../../core/stairs.js';
 import { SERVO_DEFAULTS, channelConflicts, deviceOnChannel } from '../../core/config.js';
 import { pinLabel } from '../../core/protocol.js';
+import { onSwipe, decideStep, dragFollow, rubber, isPhone, EDGE_BACK } from '../swipe.js';
+import { stretch, swapIn, reducedMotion, EASE_SPRING_SOFT } from '../motion.js';
+import { loadManifest, latestFor, updateState, OTA_STAGE_TEXT } from '../../core/firmware.js';
 
 const FLOOR_KEY = 'hg.ui.manageFloor';
+const SORT_KEY = 'hg.ui.sortMode';
 
 const nodeText = (home, id) => (id === null || id === undefined ? 'Chưa gán ESP' : home.nodes.get(id)?.name || `ESP ${id}`);
+
+/** "kênh 1 · GPIO4" - kèm luôn chân cắm cho khỏi nhầm. */
+function channelText(home, d) {
+    if (!d.ch) return 'chưa chọn kênh';
+    const board = home.nodes.get(d.node)?.board;
+    return `kênh ${d.ch} · ${board ? pinLabel(board, d.ch) : '?'}`;
+}
 
 export function mount(root, ctx) {
     const { home, toast } = ctx;
     let floorIndex = Math.min(Number(sessionStorage.getItem(FLOOR_KEY)) || 0, home.floors.length - 1);
+    let sortMode = sessionStorage.getItem(SORT_KEY) === '1';
+
+    // Danh sách firmware mới nhất (để hiện "Có bản mới" + nút cập nhật). null = đang đọc, false = lỗi.
+    let manifest = null;
+    const onManifest = new Set();
+    if (ctx.store.canUpdate) {
+        loadManifest().then(m => {
+            manifest = m || false;
+            onManifest.forEach(fn => fn());
+            if (m) draw();
+        });
+    }
 
     /** Các thiết bị mà ESP này thực sự điều khiển (kể cả "theo phòng"), xếp theo kênh. */
     const devicesOf = id => home.allDevices
@@ -46,8 +69,15 @@ export function mount(root, ctx) {
         render(root, html`
             <header class="page-head">
                 <a class="back-link" href="#/settings"><i class="fa-solid fa-chevron-left"></i>Cài đặt</a>
-                <h1>Phòng & thiết bị</h1>
-                <p>${ctx.homeSource() === 'local' ? 'Đang dùng bản đã chỉnh trên máy này' : 'Đang dùng file cấu hình gốc'}</p>
+                <div class="page-head__row">
+                    <h1>Phòng & thiết bị</h1>
+                    <button class="btn-pill ${sortMode ? 'btn-primary' : ''}" data-act="sort" aria-pressed="${sortMode}">
+                        <i class="fa-solid ${sortMode ? 'fa-check' : 'fa-arrow-down-up-across-line'}"></i>${sortMode ? 'Xong' : 'Sắp xếp'}
+                    </button>
+                </div>
+                <p>${sortMode
+                    ? 'Bấm mũi tên để đổi chỗ phòng / đèn. Thứ tự này hiện y hệt ở màn hình Nhà.'
+                    : ctx.homeSource() === 'local' ? 'Đang dùng bản đã chỉnh trên máy này' : 'Đang dùng file cấu hình gốc'}</p>
             </header>
 
             <div class="segmented segmented--block" id="mFloors" role="tablist" style="--n:${home.floors.length}; --i:${floorIndex}">
@@ -55,8 +85,8 @@ export function mount(root, ctx) {
                 ${home.floors.map((f, i) => html`<button role="tab" data-index="${i}" aria-selected="${i === floorIndex}">${f.name}</button>`)}
             </div>
 
-            <div class="manage-rooms">
-                ${floor.rooms.map(room => html`
+            <div class="manage-rooms ${sortMode ? 'is-sorting' : ''}">
+                ${floor.rooms.map((room, ri) => html`
                     <section class="card manage-room" data-room="${room.id}">
                         <header class="manage-room__head">
                             <span class="room__icon"><i class="fa-solid ${roomIcon(room)}"></i></span>
@@ -64,37 +94,50 @@ export function mount(root, ctx) {
                                 <h2>${room.name}</h2>
                                 <span class="room__meta">${room.devices.length} thiết bị · ${nodeText(home, room.node)}</span>
                             </div>
-                            <button class="icon-btn" data-act="edit-room" aria-label="Sửa phòng ${room.name}"><i class="fa-solid fa-pen"></i></button>
+                            ${sortMode ? html`
+                                <span class="sort-btns">
+                                    <button class="icon-btn" data-act="room-up" ${ri === 0 ? 'disabled' : ''} aria-label="Đưa ${room.name} lên"><i class="fa-solid fa-chevron-up"></i></button>
+                                    <button class="icon-btn" data-act="room-down" ${ri === floor.rooms.length - 1 ? 'disabled' : ''} aria-label="Đưa ${room.name} xuống"><i class="fa-solid fa-chevron-down"></i></button>
+                                </span>`
+                            : html`<button class="icon-btn" data-act="edit-room" aria-label="Sửa phòng ${room.name}"><i class="fa-solid fa-pen"></i></button>`}
                         </header>
                         <ul class="manage-list">
-                            ${room.devices.map(d => html`
-                                <li>
-                                    <button class="manage-item" data-act="edit-device" data-key="${d.key}">
+                            ${room.devices.map((d, di) => html`
+                                <li class="${sortMode ? 'sort-row' : ''}">
+                                    <button class="manage-item" data-act="${sortMode ? '' : 'edit-device'}" data-key="${d.key}">
                                         <span class="manage-item__icon"><i class="fa-solid ${deviceIcon(d)}"></i></span>
                                         <span class="manage-item__text">
                                             <strong>${d.name}</strong>
-                                            <small>${typeLabel(d)}${d.actuator === 'servo' ? ' · Servo' : d.actuator === 'relay' ? ' · Relay' : ''} · ${d.node === null ? 'Chưa gán ESP' : nodeText(home, d.node) + (d.type === 'stairs' ? ` · ${d.steps} bậc` : d.ch ? ` · kênh ${d.ch}` : ' · chưa chọn kênh')}</small>
+                                            <small>${typeLabel(d)}${d.actuator === 'servo' ? ' · Servo' : d.actuator === 'relay' ? ' · Relay' : ''} · ${d.node === null ? 'Chưa gán ESP' : nodeText(home, d.node) + (d.type === 'stairs' ? ` · ${d.steps} bậc` : ` · ${channelText(home, d)}`)}</small>
                                             ${conflicts.has(d.key) ? html`<small class="warn"><i class="fa-solid fa-triangle-exclamation"></i>Trùng kênh với ${conflicts.get(d.key).name} (${conflicts.get(d.key).room.name})</small>` : ''}
                                         </span>
-                                        <i class="fa-solid fa-chevron-right manage-item__go"></i>
+                                        ${sortMode ? '' : html`<i class="fa-solid fa-chevron-right manage-item__go"></i>`}
                                     </button>
+                                    ${sortMode ? html`
+                                    <span class="sort-btns">
+                                        <button class="icon-btn" data-act="dev-up" data-key="${d.key}" ${di === 0 ? 'disabled' : ''} aria-label="Đưa ${d.name} lên"><i class="fa-solid fa-chevron-up"></i></button>
+                                        <button class="icon-btn" data-act="dev-down" data-key="${d.key}" ${di === room.devices.length - 1 ? 'disabled' : ''} aria-label="Đưa ${d.name} xuống"><i class="fa-solid fa-chevron-down"></i></button>
+                                    </span>` : ''}
                                 </li>`)}
+                            ${sortMode ? '' : html`
                             <li>
                                 <button class="manage-add" data-act="add-device"><i class="fa-solid fa-plus"></i>Thêm thiết bị</button>
-                            </li>
+                            </li>`}
                         </ul>
                     </section>`)}
-                <button class="manage-add manage-add--room card" data-act="add-room"><i class="fa-solid fa-plus"></i>Thêm phòng vào ${floor.name}</button>
+                ${sortMode ? '' : html`<button class="manage-add manage-add--room card" data-act="add-room"><i class="fa-solid fa-plus"></i>Thêm phòng vào ${floor.name}</button>`}
             </div>
 
             <h2 class="section-title">Bộ điều khiển ESP</h2>
             <section class="card group">
                 ${[...home.nodes.values()].map(n => {
                     const count = devicesOf(n.id).length;
+                    const fw = ctx.store.node(n.id)?.health?.fw;
+                    const hasNew = updateState(fw, latestFor(manifest, n.id)) === 'update';
                     return html`
                     <button class="row row--link row--btn" data-act="edit-node" data-node="${n.id}">
                         <span class="row__label"><i class="fa-solid ${n.id === 0 ? 'fa-server' : 'fa-microchip'}"></i>${n.name}</span>
-                        <span class="row__value">số ${n.id} · ${count ? `${count} thiết bị` : 'chưa gắn gì'}</span>
+                        <span class="row__value">${hasNew ? html`<span class="new-dot">Có bản mới</span>` : ''}số ${n.id} · ${count ? `${count} thiết bị` : 'chưa gắn gì'}</span>
                         <i class="fa-solid fa-chevron-right row__go"></i>
                     </button>`;
                 })}
@@ -151,7 +194,8 @@ export function mount(root, ctx) {
                             <button type="button" role="tab" data-act-type="relay" aria-selected="${actuator === 'relay'}"><i class="fa-solid fa-plug"></i>Relay</button>
                         </div>
                     </div>
-                    <div class="field" id="dServoField"><span>Góc servo (độ)</span>
+                    <div class="field" id="dServoField"><span class="field__label-row">Góc servo (độ)
+                            <button type="button" class="btn-pill btn-sm" id="dSwap" title="Đổi góc BẬT và TẮT cho nhau (công tắc lắp ngược)"><i class="fa-solid fa-right-left"></i>Đảo chiều</button></span>
                         <div class="angle-row">
                             <label><small>Gạt BẬT</small><input type="number" id="dOn" min="0" max="180" value="${angles.on}" /></label>
                             <label><small>Gạt TẮT</small><input type="number" id="dOff" min="0" max="180" value="${angles.off}" /></label>
@@ -162,13 +206,14 @@ export function mount(root, ctx) {
                         <label class="field"><span>Bộ điều khiển</span>
                             <select id="dNode">${nodeOptions(device ? (device.ownNode ?? 'inherit') : 'inherit', true)}</select>
                         </label>
-                        <label class="field field--small" id="dChField"><span id="dChLabel">Relay số</span>
-                            <input type="number" id="dCh" min="1" max="16" placeholder="–" value="${device?.ch ?? ''}" />
+                        <label class="field" id="dChField"><span id="dChLabel">Relay số</span>
+                            <select id="dCh"></select>
                         </label>
                         <label class="field field--small" id="dStepsField"><span>Số bậc</span>
-                            <input type="number" id="dSteps" min="2" max="32" value="${device?.steps ?? 15}" />
+                            <input type="number" id="dSteps" min="2" max="32" value="${device?.steps ?? 13}" />
                         </label>
                     </div>
+                    <p class="pin-hint" id="dPin" aria-live="polite"></p>
                     <div class="row" id="dLowField">
                         <span class="row__label row__label--wrap"><i class="fa-solid fa-arrow-down-short-wide"></i>
                             <span>Relay kích mức thấp<small>Bật nếu relay chạy NGƯỢC (bấm bật mà relay tắt). Không phải sửa code.</small></span></span>
@@ -176,11 +221,43 @@ export function mount(root, ctx) {
                     </div>
                     <label class="field" id="dDriverField"><span>Mạch điều khiển các bậc</span>
                         <select id="dDriver">
-                            ${Object.entries(DRIVERS).map(([id, d]) => html`<option value="${id}" ${id === (device?.driver || 'mcp23017') ? 'selected' : ''}>${d.label} — ${d.note}</option>`)}
+                            ${Object.entries(DRIVERS).map(([id, d]) => html`<option value="${id}" ${id === (device?.driver || 'pca9685') ? 'selected' : ''}>${d.label} — ${d.note}</option>`)}
                         </select>
                     </label>
                     <p class="field__hint" id="dHint"></p>
                 `);
+                // ----- Ô chọn kênh: mỗi kênh ghi luôn CHÂN cắm trên ESP, kênh đã dùng thì ghi đang dùng cho gì -----
+                let chosenCh = device?.ch ?? null;
+                const effectiveNode = () => {
+                    const v = readNode($('#dNode', el).value);
+                    return v === undefined ? (home.rooms.get($('#dRoom', el).value)?.node ?? null) : v;
+                };
+                const paintChannels = () => {
+                    const nodeId = effectiveNode();
+                    const node = home.nodes.get(nodeId);
+                    const board = node?.board || 'ESP32-C3';
+                    const select = $('#dCh', el);
+                    const opts = [`<option value="">– Chưa chọn –</option>`];
+                    for (let ch = 1; ch <= 16; ch++) {
+                        const used = nodeId !== null ? deviceOnChannel(home, nodeId, ch, device?.key) : null;
+                        const pin = pinLabel(board, ch);
+                        const label = `Kênh ${ch} — ${pin}${used ? ` (đang dùng: ${used.name})` : ''}`;
+                        opts.push(`<option value="${ch}"${ch === chosenCh ? ' selected' : ''}>${label.replace(/</g, '&lt;')}</option>`);
+                    }
+                    select.innerHTML = opts.join('');
+                    const hint = $('#dPin', el);
+                    if (type === 'stairs') { hint.hidden = true; return; }
+                    hint.hidden = false;
+                    if (nodeId === null) {
+                        hint.innerHTML = '<i class="fa-solid fa-circle-info"></i>Chưa gán ESP: chọn <strong>Bộ điều khiển</strong> (hoặc gán ESP cho phòng) để biết cắm chân nào.';
+                    } else if (!chosenCh) {
+                        hint.innerHTML = `<i class="fa-solid fa-circle-info"></i>Chọn kênh: mỗi kênh là 1 chân trên <strong>${node?.name || 'ESP ' + nodeId}</strong> (${board}).`;
+                    } else {
+                        const where = chosenCh >= 9 ? `cổng <strong>${chosenCh - 9}</strong> của mạch mở rộng PCA9685` : `chân <strong>${pinLabel(board, chosenCh)}</strong>`;
+                        hint.innerHTML = `<i class="fa-solid fa-plug"></i>Cắm dây ${actuator === 'servo' && type !== 'stairs' ? 'tín hiệu servo (dây cam/vàng)' : 'chân IN của relay'} vào ${where} trên <strong>${node?.name || 'ESP ' + nodeId}</strong> (${board}).`;
+                    }
+                };
+
                 // Cầu thang: hỏi số bậc thay cho số relay
                 const paintType = () => {
                     const stairs = type === 'stairs';
@@ -195,13 +272,26 @@ export function mount(root, ctx) {
                     $('#dAct', el).style.setProperty('--i', actuator === 'relay' ? 1 : 0);
                     $$('#dAct button', el).forEach(b => b.setAttribute('aria-selected', String(b.dataset.actType === actuator)));
                     $('#dHint', el).textContent = stairs
-                        ? 'Mỗi bậc 1 dải LED + 1 module D4184, nối vào mạch mở rộng MCP23017 (tối đa 16 bậc / 1 mạch).'
+                        ? 'Mỗi bậc 1 dải LED 12V + 1 module D4184, nối vào mạch PCA9685 (tối đa 16 bậc / 1 mạch, chỉnh sáng được). Nhà có 2 cầu thang thì thêm 2 thiết bị loại Cầu thang.'
                         : servo
                             ? 'Servo SG90 gạt công tắc tường sang BẬT/TẮT rồi về góc nghỉ (tay người vẫn bấm được). Không đụng điện 220V. Kênh servo = chân PWM / kênh mạch PCA9685 trên ESP.'
                             : '"Theo phòng": dùng ESP đã gán cho phòng. Relay số = chân relay trên ESP nối tới thiết bị này.';
+                    paintChannels();
                 };
                 paintType();
+                $('#dCh', el).addEventListener('change', e => {
+                    chosenCh = e.target.value === '' ? null : Number(e.target.value);
+                    paintChannels();
+                });
+                $('#dNode', el).addEventListener('change', paintChannels);
+                $('#dRoom', el).addEventListener('change', paintChannels);
                 el.addEventListener('click', e => {
+                    if (e.target.closest('#dSwap')) {
+                        const on = $('#dOn', el);
+                        const off = $('#dOff', el);
+                        [on.value, off.value] = [off.value, on.value];
+                        return;
+                    }
                     const low = e.target.closest('#dLow');
                     if (low) {
                         low.setAttribute('aria-checked', String(low.getAttribute('aria-checked') !== 'true'));
@@ -240,7 +330,7 @@ export function mount(root, ctx) {
                     if (!name) return toast('Bạn chưa đặt tên thiết bị', 'error');
                     const chRaw = $('#dCh').value;
                     const ch = chRaw === '' ? null : Number(chRaw);
-                    if (ch !== null && (!Number.isInteger(ch) || ch < 1 || ch > 16)) return toast('Relay số phải từ 1 đến 16', 'error');
+                    if (ch !== null && (!Number.isInteger(ch) || ch < 1 || ch > 16)) return toast('Kênh phải từ 1 đến 16', 'error');
                     const node = readNode($('#dNode').value);
                     const steps = Number($('#dSteps').value);
                     if (type === 'stairs' && !(Number.isInteger(steps) && steps >= 2 && steps <= 32)) {
@@ -381,6 +471,38 @@ export function mount(root, ctx) {
     };
     const uptimeText = s => (s >= 86400 ? `${Math.floor(s / 86400)} ngày` : s >= 3600 ? `${Math.floor(s / 3600)} giờ` : `${Math.max(1, Math.floor(s / 60))} phút`);
 
+    /** Phần mềm ESP: bản đang chạy, bản mới, nút cập nhật + tiến độ. */
+    function firmwareHtml(node, s, h) {
+        const latest = latestFor(manifest, node.id);
+        const ota = s?.ota && Date.now() - s.ota.at < 5 * 60e3 ? s.ota : null;
+        const busy = ota && !['done', 'error'].includes(ota.stage);
+        const state = updateState(h?.fw, latest);
+        let body;
+        if (busy) {
+            const pct = Number.isFinite(ota.pct) ? ota.pct : 0;
+            body = html`
+                <div class="ota">
+                    <div class="ota__text"><span>${OTA_STAGE_TEXT[ota.stage] || ota.stage}…</span><strong>${pct}%</strong></div>
+                    <div class="ota__bar"><span style="width:${pct}%"></span></div>
+                    <small>Đừng rút điện ESP trong lúc này. Lỗi giữa chừng thì ESP tự chạy tiếp bản cũ.</small>
+                </div>`;
+        } else if (state === 'update') {
+            body = html`<button type="button" class="btn-pill btn-primary" data-ncmd="update"><i class="fa-solid fa-cloud-arrow-down"></i>Cập nhật lên bản ${latest.ver}</button>`;
+        } else if (state === 'old-usb') {
+            body = html`<p class="field__hint">Bản ${h.fw} chưa cập nhật qua mạng được. Nạp qua USB <strong>1 lần</strong> bản ${latest.ver} (docs/nap-code.md), từ lần sau bấm cập nhật ngay tại đây.</p>`;
+        } else if (state === 'latest') {
+            body = html`<span class="fw-ok"><i class="fa-solid fa-circle-check"></i>Đang dùng bản mới nhất</span>`;
+        } else {
+            body = html`<span class="field__hint">${!h?.fw ? 'Chờ ESP báo phiên bản…' : manifest === null ? 'Đang kiểm tra bản mới…' : 'Chưa có danh sách bản mới'}</span>`;
+        }
+        return html`
+            <div class="field"><span>Phần mềm${h?.fw ? ` · bản ${h.fw}` : ''}</span>
+                <div class="fw-row">${body}</div>
+                ${ota?.stage === 'error' ? html`<p class="ota-msg ota-msg--bad"><i class="fa-solid fa-triangle-exclamation"></i>${ota.msg || 'Cập nhật lỗi'}</p>` : ''}
+                ${ota?.stage === 'done' ? html`<p class="ota-msg ota-msg--good"><i class="fa-solid fa-circle-check"></i>${ota.msg || 'Cập nhật xong'}</p>` : ''}
+            </div>`;
+    }
+
     /** Tình trạng ESP (bản thật): online, phiên bản, nhiệt độ, sóng + nút tìm / khởi động lại. */
     function healthHtml(node) {
         if (ctx.store.transportName === 'demo') return '';
@@ -389,7 +511,6 @@ export function mount(root, ctx) {
         const state = s?.online === true ? 'online' : s?.online === false ? 'offline' : 'connecting';
         const label = { online: 'Đang chạy', offline: 'Mất kết nối', connecting: 'Chưa có tin' }[state];
         const parts = h ? [
-            h.fw && `bản ${h.fw}`,
             Number.isFinite(h.up) && `chạy ${uptimeText(h.up)}`,
             Number.isFinite(h.temp) && `${h.temp.toFixed(1)}°C`,
             Number.isFinite(h.link) && `sóng ${h.link}%`,
@@ -403,13 +524,16 @@ export function mount(root, ctx) {
                     <button type="button" class="btn-pill" data-ncmd="identify"><i class="fa-solid fa-lightbulb"></i>Nháy đèn tìm ESP</button>
                     <button type="button" class="btn-pill" data-ncmd="reboot"><i class="fa-solid fa-rotate-right"></i>Khởi động lại</button>
                 </div>
-            </div>`;
+            </div>
+            ${firmwareHtml(node, s, h)}`;
     }
 
     // ---------- Form ESP ----------
     function nodeSheet(node) {
+        let offNode = null;
         openSheet({
             title: node ? 'Sửa bộ điều khiển' : 'Thêm bộ điều khiển',
+            onClose: () => offNode?.(),
             body(el) {
                 render(el, html`
                     <label class="field"><span>Tên</span>
@@ -421,11 +545,30 @@ export function mount(root, ctx) {
                         </select>
                     </label>
                     ${node ? html`<p class="field__hint">Số của ESP này là <strong>${node.id}</strong>. Khi nạp code cho mạch, đặt đúng số này.</p>` : ''}
-                    ${node ? healthHtml(node) : ''}
+                    ${node ? html`<div id="nHealth"></div>` : ''}
                     ${node ? wiringHtml(node) : ''}
                 `);
+                // Tình trạng + tiến độ cập nhật tự vẽ lại khi ESP báo tin mới
+                if (node) {
+                    const paintHealth = () => {
+                        const box = $('#nHealth', el);
+                        if (box) render(box, healthHtml(node));
+                    };
+                    paintHealth();
+                    onManifest.add(paintHealth);
+                    const off = ctx.store.subscribe(ev => { if (ev.type === 'node' && ev.nodeId === node.id) paintHealth(); });
+                    offNode = () => { off(); onManifest.delete(paintHealth); };
+                }
                 el.addEventListener('click', e => {
                     const ncmd = e.target.closest('[data-ncmd]');
+                    if (ncmd?.dataset.ncmd === 'update') {
+                        const latest = latestFor(manifest, node.id);
+                        if (!latest) return;
+                        if (!confirm(`Cập nhật ${node.name} lên bản ${latest.ver}?\n\nMất khoảng 1 phút. Thiết bị trên ESP này tạm không điều khiển được trong lúc khởi động lại. Lỗi giữa chừng thì ESP tự chạy tiếp bản cũ.`)) return;
+                        const sent = ctx.store.nodeUpdate(node.id, latest);
+                        if (!sent) toast('Chưa kết nối tới nhà', 'error');
+                        return;
+                    }
                     if (ncmd) {
                         const cmd = ncmd.dataset.ncmd;
                         if (cmd === 'reboot' && !confirm(`Khởi động lại ${node.name}?`)) return;
@@ -475,18 +618,74 @@ export function mount(root, ctx) {
     }
 
     // ---------- Sự kiện ----------
+    /** Đổi tầng (điện thoại: nội dung trượt vào theo hướng, viên chọn giãn ra). */
+    function setFloor(index) {
+        const dir = Math.sign(index - floorIndex);
+        if (!dir || index < 0 || index >= home.floors.length) return;
+        floorIndex = index;
+        sessionStorage.setItem(FLOOR_KEY, String(floorIndex));
+        draw();
+        stretch($('#mFloors .segmented__thumb', root), dir);
+        swapIn($('.manage-rooms', root), dir);
+    }
+
+    // Điện thoại: vuốt ở bất kỳ đâu = đổi đúng 1 tầng. Vuốt từ sát mép trái = quay lại Cài đặt.
+    let dragEl = null;
+    onSwipe(root, {
+        start(dx, x0) {
+            if (!isPhone() || home.floors.length < 2 || x0 < EDGE_BACK) return false;
+            dragEl = $('.manage-rooms', root);
+            return !!dragEl;
+        },
+        move(dx) {
+            if (!dragEl) return;
+            const w = root.clientWidth || window.innerWidth;
+            const target = floorIndex + (dx < 0 ? 1 : -1);
+            const d = target >= 0 && target < home.floors.length ? dragFollow(dx, w) : rubber(dx, w) * 0.22;
+            dragEl.style.transform = `translateX(${d}px)`;
+            dragEl.style.opacity = String(1 - Math.min(Math.abs(d) / w, 1) * 0.4);
+        },
+        end(dx, velocity) {
+            const el = dragEl;
+            dragEl = null;
+            if (!el) return;
+            const step = decideStep(dx, velocity);
+            const target = floorIndex + step;
+            if (step && target >= 0 && target < home.floors.length) return setFloor(target);
+            const from = el.style.transform;
+            el.style.transform = '';
+            el.style.opacity = '';
+            if (from && !reducedMotion()) el.animate([{ transform: from }, { transform: 'none' }], { duration: 500, easing: EASE_SPRING_SOFT });
+        },
+        cancel() {
+            if (!dragEl) return;
+            dragEl.style.transform = '';
+            dragEl.style.opacity = '';
+            dragEl = null;
+        }
+    });
+
     root.addEventListener('click', e => {
         const floorBtn = e.target.closest('#mFloors button');
         if (floorBtn) {
-            floorIndex = Number(floorBtn.dataset.index);
-            sessionStorage.setItem(FLOOR_KEY, String(floorIndex));
-            draw();
+            setFloor(Number(floorBtn.dataset.index));
             return;
         }
         const btn = e.target.closest('[data-act]');
         if (!btn) return;
         const roomId = btn.closest('.manage-room')?.dataset.room;
         switch (btn.dataset.act) {
+            case 'sort':
+                sortMode = !sortMode;
+                sessionStorage.setItem(SORT_KEY, sortMode ? '1' : '0');
+                if (!sortMode) toast('Đã lưu thứ tự mới', 'success');
+                return draw();
+            case 'room-up':
+            case 'room-down':
+                return save(edit.moveRoom(home.raw, roomId, btn.dataset.act === 'room-up' ? -1 : 1));
+            case 'dev-up':
+            case 'dev-down':
+                return save(edit.moveDevice(home.raw, btn.dataset.key, btn.dataset.act === 'dev-up' ? -1 : 1));
             case 'add-device': return deviceSheet(null, roomId);
             case 'edit-device': return deviceSheet(home.devices.get(btn.dataset.key));
             case 'add-room': return roomSheet(null);

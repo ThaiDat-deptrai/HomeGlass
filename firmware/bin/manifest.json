@@ -1,0 +1,18 @@
+{
+    "v":  1,
+    "built":  "2026-11-20T02:50:10Z",
+    "master":  {
+                   "ver":  "0.2.0",
+                   "file":  "master-0.2.0.bin",
+                   "size":  979440,
+                   "sha256":  "6d9ca3ef5614057adb4b94624c55add18a516cc0dd17b25f54430255d978bab9",
+                   "chip":  "ESP32-S3"
+               },
+    "node":  {
+                 "ver":  "0.2.0",
+                 "file":  "node-0.2.0.bin",
+                 "size":  767248,
+                 "sha256":  "90198a252f4d8a5615ef990678d178a146c4f3cdb10b416e6a82b9ea1dbd2a42",
+                 "chip":  "ESP32-C3"
+             }
+}

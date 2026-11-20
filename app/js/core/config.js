@@ -12,7 +12,9 @@ const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
  * Góc servo mặc định (độ): gạt công tắc sang BẬT, sang TẮT, rồi về góc NGHỈ
  * (về nghỉ để tay người vẫn bấm công tắc được, servo không bị ghì).
  */
-export const SERVO_DEFAULTS = { on: 45, off: 135, rest: 90 };
+// Công tắc trong nhà: gạt BẬT 0° (hoặc 180°), TẮT phía ngược lại, nghỉ 90° (tay người vẫn bấm được).
+// Công tắc nào lắp ngược thì bấm "Đảo chiều" trong form thiết bị.
+export const SERVO_DEFAULTS = { on: 0, off: 180, rest: 90 };
 
 /**
  * Tìm thiết bị dùng TRÙNG KÊNH trên cùng 1 ESP (2 đèn chung 1 chân -> bấm 1 cái gạt luôn cái kia).

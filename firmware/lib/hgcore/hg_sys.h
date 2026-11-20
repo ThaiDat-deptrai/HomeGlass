@@ -59,4 +59,12 @@ uint8_t resetCode();
 const char *resetText(uint8_t code);
 uint32_t uptimeSec();
 
+// ----- Cập nhật qua mạng: bản mới phải tự "chốt" sau khi chạy ổn, không thì về bản cũ -----
+/** true = đang chạy bản vừa cập nhật, CHƯA chốt (khởi động lại lúc này sẽ quay về bản cũ). */
+bool otaPendingVerify();
+/** Chốt bản đang chạy là tốt (gọi khi đã kết nối ổn). Không phải bản mới thì không làm gì. */
+void otaMarkValid();
+/** Bỏ bản mới: khởi động lại để quay về bản cũ. */
+void otaRollback();
+
 }  // namespace hg
