@@ -6,6 +6,7 @@ import { html, render, $ } from '../dom.js';
 import { ACCENTS, BACKGROUNDS } from '../../core/settings.js';
 import { getErrors, clearErrors, errorsText, onErrorsChange } from '../../core/errlog.js';
 import { openSheet } from '../sheet.js';
+import { openTelegram } from './telegram.js';
 
 /** Bảng xem nhật ký lỗi: mới nhất lên đầu, sao chép để gửi người sửa. */
 function openErrorLog(toast) {
@@ -81,6 +82,16 @@ async function fileToDataUrl(file, maxSize = 1600) {
 export function mount(root, ctx) {
     const { home, store, settings, toast, logout } = ctx;
     const isDemo = store.transportName === 'demo';
+
+    /** Tóm tắt bot Telegram cho dòng trong Cài đặt. */
+    function tgText() {
+        if (isDemo) return 'Chỉ có ở nhà thật';
+        const s = store.telegramState();
+        if (!s) return 'Chưa có tin';
+        if (!s.on) return 'Chưa cài';
+        return `${s.bot || 'Bot'} · ${s.chats ? `${s.chats} người` : 'chưa kết nối'}`;
+    }
+
     function draw() {
         const s = settings.get();
         const dark = settings.isDark();
@@ -167,6 +178,11 @@ export function mount(root, ctx) {
                     <span class="row__value">${home.rooms.size} khu vực · ${home.allDevices.length} thiết bị · ${home.nodes.size} ESP</span>
                     <i class="fa-solid fa-chevron-right row__go"></i>
                 </a>
+                <button class="row row--link row--btn" id="telegram">
+                    <span class="row__label"><i class="fa-brands fa-telegram"></i>Thông báo Telegram</span>
+                    <span class="row__value">${tgText()}</span>
+                    <i class="fa-solid fa-chevron-right row__go"></i>
+                </button>
                 <div class="row">
                     <span class="row__label"><i class="fa-solid fa-wifi"></i>Kết nối</span>
                     <span class="row__value conn conn--${store.status()}">${CONNECTION_TEXT[store.status()] || store.status()}</span>
@@ -275,6 +291,7 @@ export function mount(root, ctx) {
         if (sw) return save({ [sw.dataset.key]: sw.getAttribute('aria-checked') !== 'true' });
 
         if (e.target.closest('#errlog')) return openErrorLog(toast);
+        if (e.target.closest('#telegram')) return openTelegram(ctx);
 
         // ----- Sao lưu & khôi phục -----
         const act = e.target.closest('[data-act]')?.dataset.act;
@@ -334,6 +351,11 @@ export function mount(root, ctx) {
 
     const offStore = store.subscribe(event => {
         if (event.type === 'status') draw();
+        // Tình trạng bot Telegram đổi -> dòng tóm tắt cập nhật (không vẽ lại cả trang)
+        if (event.type === 'node' && event.nodeId === 0) {
+            const v = root.querySelector('#telegram .row__value');
+            if (v) v.textContent = tgText();
+        }
     });
 
     const offErrors = onErrorsChange(draw); // có lỗi mới -> số đếm cập nhật ngay

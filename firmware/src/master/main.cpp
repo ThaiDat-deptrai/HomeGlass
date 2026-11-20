@@ -36,6 +36,7 @@
 #include "hg_secrets.h"
 #include "hg_sys.h"
 #include "schedules.h"
+#include "telegram.h"
 
 using namespace hg;
 
@@ -66,12 +67,14 @@ struct NodeInfo {
     bool hasTable = false;
     Table table = {};
     std::vector<String> keys;   // keys[i] = key của thiết bị thứ i trong bảng
+    std::vector<String> names;  // tên hiển thị (vd "Đèn ngủ · Phòng ngủ 1"), cho bot Telegram
     uint32_t cfgSentAt = 0;
     bool hasHb = false;
     MsgHeartbeat hb = {};
     uint32_t healthAt = 0;
     uint32_t hotWarnAt = 0;
     bool bootReported = true;
+    bool tgOffAlerted = false;  // đã báo Telegram "mất kết nối" (để báo lại khi có lại)
 };
 static std::map<uint8_t, NodeInfo> nodes;
 
@@ -79,6 +82,12 @@ struct Route { uint8_t node; uint8_t idx; };
 static std::map<String, Route> routes;       // key thiết bị -> ESP nào, dòng nào
 static std::map<String, bool> published;     // trạng thái đã báo app (tránh gửi lặp)
 static std::map<String, String> attrs;       // cài đặt thiết bị (cầu thang) đang có trên máy chủ
+static std::map<String, String> devName;     // key -> tên hiển thị (cho bot Telegram)
+static std::map<String, uint32_t> onSince;   // key -> lúc bắt đầu bật (nhắc "đèn bật quá lâu")
+
+// Lệnh bật/tắt gửi từ Telegram: chờ ESP báo XONG thật mới trả lời "đã bật"
+struct TgWait { int64_t chat; bool want; uint32_t at; };
+static std::map<String, TgWait> tgWait;
 
 struct Pending {
     uint32_t id;
@@ -127,15 +136,30 @@ static void publishJson(const String &topic, JsonDocument &doc, bool retained) {
     publishRaw(topic, s, retained);
 }
 
-static void publishLog(uint8_t node, const String &msg) {
+static String nodeLabel(uint8_t id) { return id == HG_MASTER_ID ? String("ESP trung tâm") : "ESP " + String(id); }
+
+static void publishLog(uint8_t node, const String &msg, tg::Alert kind = tg::AL_ERROR) {
     Serial.printf("[log] ESP %u: %s\n", node, msg.c_str());
     JsonDocument d;
     d["msg"] = msg;
     publishJson(nodeTopic(node, "log"), d, false);
+    tg::alert(kind, msg.substring(0, 60), String(kind == tg::AL_HOT ? "🌡️ " : "⚠️ ") + nodeLabel(node) + ": " + msg);
+}
+
+static String nameOf(const String &key) {
+    auto it = devName.find(key);
+    return it != devName.end() && it->second.length() ? it->second : key;
 }
 
 static void publishState(const String &key, bool on) {
     published[key] = on;
+    if (on) { if (!onSince.count(key)) onSince[key] = millis(); }
+    else onSince.erase(key);
+    auto w = tgWait.find(key);
+    if (w != tgWait.end() && w->second.want == on) {
+        tg::send(w->second.chat, String(on ? "💡 Đã BẬT " : "⚫ Đã TẮT ") + nameOf(key));
+        tgWait.erase(w);
+    }
     JsonDocument d;
     d["on"] = on;
     publishJson(String(DEV) + key + "/state", d, true);
@@ -198,13 +222,14 @@ static String loadBlob(const char *key) {
 // =============================================================
 // Bảng kênh
 // =============================================================
-static bool parseNodeConfig(const String &json, Table &t, std::vector<String> &keys) {
+static bool parseNodeConfig(const String &json, Table &t, std::vector<String> &keys, std::vector<String> &names) {
     JsonDocument doc;
     if (deserializeJson(doc, json)) return false;
     JsonArrayConst list = doc["devices"];
     if (list.isNull()) return false;
     t = {};
     keys.clear();
+    names.clear();
     for (JsonObjectConst d : list) {
         if (t.n >= HG_MAX_DEVICES) break;
         const char *a = d["a"] | "";
@@ -223,6 +248,7 @@ static bool parseNodeConfig(const String &json, Table &t, std::vector<String> &k
         if (!*k) continue;
         t.e[t.n++] = e;
         keys.push_back(String(k));
+        names.push_back(String(d["n"] | ""));
     }
     t.rev = tableCrc(t);
     return true;
@@ -230,9 +256,13 @@ static bool parseNodeConfig(const String &json, Table &t, std::vector<String> &k
 
 static void rebuildRoutes() {
     routes.clear();
+    devName.clear();
     for (auto &kv : nodes) {
         if (!kv.second.hasTable) continue;
-        for (size_t i = 0; i < kv.second.keys.size(); i++) routes[kv.second.keys[i]] = {kv.first, (uint8_t)i};
+        for (size_t i = 0; i < kv.second.keys.size(); i++) {
+            routes[kv.second.keys[i]] = {kv.first, (uint8_t)i};
+            if (i < kv.second.names.size()) devName[kv.second.keys[i]] = kv.second.names[i];
+        }
     }
 }
 
@@ -267,6 +297,7 @@ static void handleNodeConfig(uint8_t id, const uint8_t *payload, unsigned int le
         // ESP đã bị xóa khỏi nhà
         n.hasTable = false;
         n.keys.clear();
+        n.names.clear();
         n.table = {};
         prefs.remove(("c" + String(id)).c_str());
         saveIds();
@@ -275,14 +306,15 @@ static void handleNodeConfig(uint8_t id, const uint8_t *payload, unsigned int le
     }
     String json = toStr(payload, len);
     Table t;
-    std::vector<String> keys;
-    if (!parseNodeConfig(json, t, keys)) {
+    std::vector<String> keys, names;
+    if (!parseNodeConfig(json, t, keys, names)) {
         publishLog(HG_MASTER_ID, "Bảng kênh của ESP " + String(id) + " bị hỏng, giữ bảng cũ");
         return;
     }
     bool changed = !n.hasTable || n.table.rev != t.rev || n.keys != keys;
     n.table = t;
     n.keys = keys;
+    n.names = names;
     n.hasTable = true;
     rebuildRoutes();
     saveConfigJson(id, json);
@@ -299,7 +331,7 @@ static void loadAll() {
         uint8_t id = (uint8_t)ids[i];
         String json = loadBlob(("c" + String(id)).c_str());
         NodeInfo &n = nodes[id];
-        if (json.length() && parseNodeConfig(json, n.table, n.keys)) n.hasTable = true;
+        if (json.length() && parseNodeConfig(json, n.table, n.keys, n.names)) n.hasTable = true;
         String mk = "m" + String(id);
         if (prefs.getBytesLength(mk.c_str()) == 6) {
             prefs.getBytes(mk.c_str(), n.mac, 6);
@@ -392,6 +424,10 @@ static void markSeen(uint8_t id) {
     if (!n.online) {
         n.online = true;
         publishStatus(id, true);
+        if (n.tgOffAlerted) {
+            n.tgOffAlerted = false;
+            tg::alert(tg::AL_OFFLINE, "on" + String(id), "✅ " + nodeLabel(id) + " đã kết nối lại");
+        }
     }
 }
 
@@ -466,6 +502,8 @@ static void publishOta(uint8_t node, const char *stage, int pct, const String &m
     if (msg.length()) d["msg"] = msg;
     publishJson(nodeTopic(node, "update"), d, false);
     Serial.printf("[ota] ESP %u: %s %d%% %s\n", node, stage, pct, msg.c_str());
+    if (!strcmp(stage, "done")) tg::alert(tg::AL_OTA, "ota" + String(node), "🆙 " + nodeLabel(node) + ": " + msg);
+    else if (!strcmp(stage, "error")) tg::alert(tg::AL_OTA, "otaerr" + String(node), "❌ Cập nhật " + nodeLabel(node) + " lỗi: " + msg);
 }
 
 static bool parseSha(const char *hex, uint8_t out[32]) {
@@ -711,8 +749,10 @@ static void otaOnHeartbeat(uint8_t id, const MsgHeartbeat &hb) {
 static void otaLoop() {
     if (otaReq.due) {
         otaReq.due = false;
+        tg::pause(true);  // nhường bộ nhớ cho việc tải file
         if (otaReq.node == HG_MASTER_ID) otaSelf(otaReq);
         else otaNodeStart(otaReq);
+        tg::pause(false);
         otaReq = OtaRequest();
     }
     if (job.stage == OTA_IDLE) return;
@@ -784,7 +824,7 @@ static void handlePacket(const Packet &p) {
             if (!n.healthAt || millis() - n.healthAt > HG_HEALTH_MS) publishNodeHealth(id);
             if (t >= HG_TEMP_WARN && (!n.hotWarnAt || millis() - n.hotWarnAt > 600000)) {
                 n.hotWarnAt = millis();
-                publishLog(id, "Chip đang nóng " + String(t, 1) + "°C - kiểm tra chỗ đặt ESP có thoáng không");
+                publishLog(id, "Chip đang nóng " + String(t, 1) + "°C - kiểm tra chỗ đặt ESP có thoáng không", tg::AL_HOT);
             }
             if (n.hasTable) {
                 if (n.hb.cfgRev != n.table.rev) {
@@ -862,8 +902,268 @@ static void nodesLoop() {
             publishStatus(id, false);
             Serial.printf("[link] ESP %u mất kết nối\n", id);
         }
+        // Báo Telegram khi mất hẳn 2 phút (khởi động lại / cập nhật thì khỏi làm phiền)
+        if (!n.online && n.hasMac && !n.tgOffAlerted && millis() - n.lastSeen > 120000 && !(job.stage != OTA_IDLE && job.node == id)) {
+            n.tgOffAlerted = true;
+            tg::alert(tg::AL_OFFLINE, "off" + String(id), "📴 " + nodeLabel(id) + " mất kết nối hơn 2 phút (mất điện? quá xa trung tâm?)");
+        }
         if (n.online && n.hasTable && n.hasHb && n.hb.cfgRev != n.table.rev && millis() - n.cfgSentAt > CONFIG_RETRY_MS) sendConfig(id);
     }
+}
+
+// =============================================================
+// Bot Telegram: hiểu lệnh + trả lời (phần nói chuyện với Telegram ở telegram.cpp)
+// -------------------------------------------------------------
+// Lệnh (gõ có dấu / không dấu đều được, hoặc bấm nút):
+//   /menu  /trangthai  /den (bảng nút bật tắt từng đèn)  /tathet
+//   "bật đèn ngủ", "tắt đèn phòng thờ", "tắt hết"
+// Bấm bật/tắt -> chờ ESP báo XONG thật mới trả lời "Đã bật" (giống app).
+// =============================================================
+static const uint32_t TG_WAIT_MS = 9000;
+static uint32_t tgLightsAt = 0, mqttDownSince = 0;
+static std::map<int64_t, uint32_t> tgStrangerAt;  // người lạ nhắn: chỉ trả lời 1 lần / 10 phút
+
+static void publishTgStatus() {
+    JsonDocument d;
+    d["on"] = tg::configured();
+    d["bot"] = tg::botName();
+    d["ok"] = tg::online();
+    d["chats"] = tg::chatCount();
+    String code = tg::pairingCode();
+    if (code.length()) d["pair"] = code;  // chỉ app (đã đăng nhập MQTT) thấy mã này
+    d["alerts"] = tg::alerts();
+    d["lh"] = tg::lightHours();
+    String e = tg::lastError();
+    if (e.length()) d["err"] = e;
+    publishJson(nodeTopic(HG_MASTER_ID, "tg"), d, true);  // KHÔNG bao giờ có mã bot trong đây
+}
+
+static const char *const TG_MENU =
+    "{\"inline_keyboard\":[[{\"text\":\"📊 Trạng thái\",\"callback_data\":\"st\"},{\"text\":\"💡 Bật/tắt đèn\",\"callback_data\":\"dv\"}],"
+    "[{\"text\":\"⚫ Tắt hết\",\"callback_data\":\"off\"}]]}";
+
+static String tgHelp() {
+    return "🏠 HomeGlass - bot riêng của nhà bạn\n\n"
+           "• Bấm nút bên dưới, hoặc gõ:\n"
+           "  bật đèn ngủ / tắt đèn phòng thờ\n"
+           "  tắt hết · trạng thái · đèn\n\n"
+           "Bot báo ngay khi ESP mất kết nối, quá nóng, có lỗi, cập nhật xong.";
+}
+
+static String tgStatusText() {
+    String s = "📊 Trạng thái nhà\n\n";
+    String onList;
+    int nOn = 0;
+    for (auto &kv : published) {
+        if (!kv.second || !routes.count(kv.first)) continue;
+        nOn++;
+        if (nOn <= 12) onList += "  💡 " + nameOf(kv.first) + "\n";
+    }
+    s += nOn ? "Đang bật " + String(nOn) + ":\n" + onList : String("Tất cả đèn đang tắt\n");
+    s += "\nESP:\n  " + String(mqtt.connected() ? "✅" : "⚠️") + " Trung tâm " + String(chipTemp(), 0) + "°C" +
+         (mqtt.connected() ? "" : " (mất máy chủ MQTT)") + "\n";
+    for (auto &kv : nodes) {
+        if (kv.first == HG_MASTER_ID || !kv.second.hasMac) continue;
+        const NodeInfo &n = kv.second;
+        s += "  " + String(n.online ? "✅ " : "📴 ") + nodeLabel(kv.first) +
+             (n.online && n.hasHb ? " " + String(n.hb.temp10 / 10.0f, 0) + "°C" : n.online ? "" : " mất kết nối") + "\n";
+    }
+    return s;
+}
+
+/** Bảng nút: mỗi thiết bị 1 nút, bấm = đảo bật/tắt. */
+static String tgDevicesMarkup(const std::vector<String> &keys) {
+    JsonDocument d;
+    JsonArray rows = d["inline_keyboard"].to<JsonArray>();
+    for (const String &key : keys) {
+        auto it = published.find(key);
+        bool on = it != published.end() && it->second;
+        JsonArray row = rows.add<JsonArray>();
+        JsonObject b = row.add<JsonObject>();
+        b["text"] = String(on ? "💡 " : "⚫ ") + nameOf(key) + (on ? "  · đang bật" : "");
+        b["callback_data"] = ("t:" + key).substring(0, 64);
+    }
+    String out;
+    serializeJson(d, out);
+    return out;
+}
+
+static std::vector<String> allKeys() {
+    std::vector<String> out;
+    for (auto &kv : nodes)
+        for (const String &k : kv.second.keys) out.push_back(k);
+    return out;
+}
+
+/** Tìm thiết bị theo lời (không dấu): mọi chữ trong câu phải có trong tên. */
+static std::vector<String> tgFind(const String &query) {
+    std::vector<String> words, hit, exact;
+    String q = tg::fold(query);
+    for (int a = 0, b; a < (int)q.length(); a = b + 1) {
+        b = q.indexOf(' ', a);
+        if (b < 0) b = q.length();
+        String w = q.substring(a, b);
+        if (w.length() && w != "den" && w != "cai" && w != "o") words.push_back(w);  // "đèn" có trong mọi tên: bỏ
+    }
+    for (const String &key : allKeys()) {
+        String hay = " " + tg::fold(nameOf(key) + " " + key) + " ";
+        bool all = !words.empty();
+        for (const String &w : words) if (hay.indexOf(" " + w) < 0) { all = false; break; }
+        if (!all) continue;
+        hit.push_back(key);
+        if (tg::fold(nameOf(key)) == q || tg::fold(nameOf(key)) == "den " + q) exact.push_back(key);
+    }
+    return exact.size() == 1 ? exact : hit;
+}
+
+static void tgSwitch(int64_t chat, const String &key, bool on) {
+    auto r = routes.find(key);
+    if (r == routes.end()) return tg::send(chat, "⚠️ " + nameOf(key) + " chưa gán ESP / kênh trong app");
+    if (r->second.node != HG_MASTER_ID && !nodes[r->second.node].online) {
+        return tg::send(chat, "📴 " + nameOf(key) + ": " + nodeLabel(r->second.node) + " đang mất kết nối");
+    }
+    auto it = published.find(key);
+    if (it != published.end() && it->second == on) return tg::send(chat, String(on ? "💡 " : "⚫ ") + nameOf(key) + " đã " + (on ? "bật" : "tắt") + " sẵn rồi");
+    tgWait[key] = {chat, on, millis()};
+    command(key, on);
+}
+
+static void tgAllOff(int64_t chat) {
+    int n = 0;
+    for (auto &kv : published) {
+        if (!kv.second || !routes.count(kv.first)) continue;
+        command(kv.first, false);
+        n++;
+    }
+    tg::send(chat, n ? "⚫ Đang tắt " + String(n) + " thiết bị…" : String("Tất cả đã tắt sẵn rồi"));
+}
+
+static void handleTg(const tg::In &in) {
+    // ----- Bấm nút -----
+    if (in.cbId.length()) {
+        if (!tg::allowed(in.chat)) return tg::answer(in.cbId, "Bạn chưa được phép điều khiển nhà này");
+        const String &d = in.cbData;
+        if (d == "st") { tg::answer(in.cbId, ""); return tg::send(in.chat, tgStatusText(), TG_MENU); }
+        if (d == "dv") { tg::answer(in.cbId, ""); return tg::send(in.chat, "Bấm để bật / tắt:", tgDevicesMarkup(allKeys())); }
+        if (d == "off") { tg::answer(in.cbId, "Đang tắt hết…"); return tgAllOff(in.chat); }
+        if (d.startsWith("t:")) {
+            String key = d.substring(2);
+            auto it = published.find(key);
+            bool on = !(it != published.end() && it->second);
+            tg::answer(in.cbId, String(on ? "Đang bật " : "Đang tắt ") + nameOf(key) + "…");
+            return tgSwitch(in.chat, key, on);
+        }
+        return tg::answer(in.cbId, "");
+    }
+
+    // ----- Tin nhắn chữ -----
+    String text = in.text;
+    text.trim();
+    if (text.startsWith("/")) {  // "/bat@ten_bot den ngu" -> "bat den ngu"
+        int at = text.indexOf('@'), sp = text.indexOf(' ');
+        if (at > 0 && (sp < 0 || at < sp)) text = text.substring(0, at) + (sp > 0 ? text.substring(sp) : "");
+        text = text.substring(1);
+    }
+    String f = tg::fold(text);
+
+    // Ghép nối: "/start 1234" (bấm link trong app) hoặc gõ đúng 4 số
+    String code = tg::pairingCode();
+    if (code.length() && (f == "start " + code || f == code)) {
+        if (!tg::addChat(in.chat)) return tg::send(in.chat, "Đã đủ " + String(tg::MAX_CHATS) + " người. Gỡ bớt trong app rồi thử lại.");
+        tg::stopPairing();
+        tg::send(in.chat, "✅ Đã kết nối" + (in.from.length() ? ", chào " + in.from : String("")) + "!\n\n" + tgHelp(), TG_MENU);
+        return;
+    }
+    if (!tg::allowed(in.chat)) {
+        uint32_t &last = tgStrangerAt[in.chat];
+        if (!last || millis() - last > 600000) {
+            last = millis();
+            tg::send(in.chat, "🔒 Đây là bot riêng của 1 ngôi nhà. Muốn dùng: mở app HomeGlass → Cài đặt → Telegram → Kết nối điện thoại.");
+        }
+        if (tgStrangerAt.size() > 32) tgStrangerAt.clear();
+        return;
+    }
+
+    if (f == "start" || f == "menu" || f == "help" || f == "tro giup" || f == "trogiup") return tg::send(in.chat, tgHelp(), TG_MENU);
+    if (f == "trangthai" || f == "trang thai" || f == "status" || f == "tinh hinh") return tg::send(in.chat, tgStatusText(), TG_MENU);
+    if (f == "den" || f == "thiet bi" || f == "thietbi" || f == "devices") return tg::send(in.chat, "Bấm để bật / tắt:", tgDevicesMarkup(allKeys()));
+    if (f == "tathet" || f == "tat het" || f == "tat tat ca" || f == "tat ca tat" || f == "tat het den") return tgAllOff(in.chat);
+
+    bool on = f.startsWith("bat ") || f.startsWith("mo ");
+    bool off = f.startsWith("tat ");
+    if (on || off) {
+        std::vector<String> found = tgFind(f.substring(f.indexOf(' ') + 1));
+        if (found.size() == 1) return tgSwitch(in.chat, found[0], on);
+        if (found.size() > 1) return tg::send(in.chat, "Có " + String(found.size()) + " thiết bị trùng tên, bấm chọn:", tgDevicesMarkup(found));
+        return tg::send(in.chat, "🤔 Không thấy thiết bị đó. Bấm để chọn:", tgDevicesMarkup(allKeys()));
+    }
+    tg::send(in.chat, "🤔 Mình chưa hiểu. Thử: \"bật đèn ngủ\", \"tắt hết\", \"trạng thái\".", TG_MENU);
+}
+
+static void handleTgCmd(const uint8_t *payload, unsigned int len) {
+    JsonDocument d;
+    if (deserializeJson(d, payload, len)) return;
+    String cmd = d["cmd"] | "";
+    if (cmd == "token") {
+        String tok = d["token"] | "";
+        tok.trim();
+        // Dạng mã BotFather: 123456789:ABC-xyz_...
+        int colon = tok.indexOf(':');
+        bool ok = colon > 3 && tok.length() > 30 && tok.length() < 100;
+        for (unsigned int i = 0; ok && i < tok.length(); i++) {
+            char c = tok[i];
+            ok = isAlphaNumeric(c) || c == ':' || c == '_' || c == '-';
+        }
+        if (!ok) return publishLog(HG_MASTER_ID, "Mã bot Telegram không đúng dạng (phải giống 123456789:ABC...)");
+        tg::setToken(tok);
+    } else if (cmd == "pair") {
+        if (!tg::configured()) return;
+        tg::startPairing();
+    } else if (cmd == "unpair") {
+        tg::clearChats();
+    } else if (cmd == "test") {
+        tg::send(0, "🔔 Tin thử từ HomeGlass: bot đang chạy tốt!", TG_MENU);
+    } else if (cmd == "alerts") {
+        tg::setAlerts(d["alerts"] | (uint32_t)tg::AL_DEFAULT, (uint8_t)constrain((int)(d["lh"] | 0), 0, 24));
+    } else if (cmd == "remove") {
+        tg::removeBot();
+    }
+    publishTgStatus();
+}
+
+static void telegramLoop() {
+    tg::In in;
+    for (int i = 0; i < 4 && tg::poll(in); i++) handleTg(in);
+
+    uint32_t now = millis();
+    // Lệnh từ Telegram mà ESP không báo xong
+    for (auto it = tgWait.begin(); it != tgWait.end();) {
+        if (now - it->second.at > TG_WAIT_MS) {
+            tg::send(it->second.chat, "⚠️ " + nameOf(it->first) + " không phản hồi (servo kẹt / ESP mất kết nối?)");
+            it = tgWait.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    // Mỗi phút: nhắc đèn bật quá lâu + báo mất máy chủ MQTT lâu
+    if (now - tgLightsAt > 60000) {
+        tgLightsAt = now;
+        uint8_t h = tg::lightHours();
+        if (h) {
+            for (auto &kv : onSince) {
+                if (now - kv.second < (uint32_t)h * 3600000UL) continue;
+                String mk = "{\"inline_keyboard\":[[{\"text\":\"⚫ Tắt luôn\",\"callback_data\":\"" + ("t:" + kv.first).substring(0, 64) + "\"}]]}";
+                tg::alert(tg::AL_LIGHTS, "lh" + kv.first, "💡 " + nameOf(kv.first) + " đã bật hơn " + String(h) + " giờ. Quên tắt?", mk);
+            }
+        }
+        if (WiFi.status() == WL_CONNECTED && !mqtt.connected()) {
+            if (!mqttDownSince) mqttDownSince = now;
+            else if (now - mqttDownSince > 300000) tg::alert(tg::AL_OFFLINE, "mqtt", "⚠️ ESP trung tâm mất kết nối máy chủ MQTT hơn 5 phút: app không điều khiển được, lịch hẹn vẫn chạy. Bot vẫn dùng được.");
+        } else {
+            mqttDownSince = 0;
+        }
+    }
+    if (tg::takeStatusChanged()) publishTgStatus();
 }
 
 // =============================================================
@@ -971,6 +1271,7 @@ static void onMqtt(char *topicC, uint8_t *payload, unsigned int len) {
         if (what == "config") handleNodeConfig((uint8_t)id, payload, len);
         else if (what == "cmd") handleNodeCmd((uint8_t)id, payload, len);
         else if (what == "ota" && len) handleOtaCmd((uint8_t)id, payload, len);
+        else if (what == "tgcmd" && id == HG_MASTER_ID && len) handleTgCmd(payload, len);
         return;
     }
     if (topic == "hg/home/schedules") handleSchedules(payload, len);
@@ -1016,9 +1317,10 @@ static void connectMqtt() {
     mqttBackoff = 1000;
     mqttAuthFail = false;
     publishStatus(HG_MASTER_ID, true);
-    const char *subs[] = {"hg/node/+/config", "hg/node/+/cmd", "hg/node/+/ota", "hg/dev/+/+/set", "hg/dev/+/+/cfg", "hg/dev/+/+/attrs", "hg/home/schedules"};
+    const char *subs[] = {"hg/node/+/config", "hg/node/+/cmd", "hg/node/+/ota", "hg/node/0/tgcmd", "hg/dev/+/+/set", "hg/dev/+/+/cfg", "hg/dev/+/+/attrs", "hg/home/schedules"};
     for (const char *s : subs) mqtt.subscribe(s, 1);
     publishMasterHealth();
+    publishTgStatus();
     // Vừa cập nhật qua mạng và đã lên lại được máy chủ: chốt bản mới là tốt
     if (otaPendingVerify()) {
         otaMarkValid();
@@ -1183,6 +1485,8 @@ void setup() {
     if (!linkOk) Serial.println("[!] Khóa mạng HG_NET_KEY sai / chưa có (cần đúng 64 ký tự hex, khác toàn số 0)");
     for (auto &kv : nodes) if (kv.second.hasMac && kv.first != HG_MASTER_ID) net.addPeer(kv.second.mac);
 
+    tg::begin();  // bot Telegram (luồng riêng, tự chờ có WiFi)
+
     configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");  // giờ chuẩn UTC
 
     tls.setCACert(HG_ROOT_CA);
@@ -1221,6 +1525,7 @@ void loop() {
 
     beaconIfDue();
     otaLoop();
+    telegramLoop();
 
     // Bản vừa cập nhật mà 10 phút chưa lên được máy chủ -> coi như hỏng, quay về bản cũ
     if (otaPendingVerify() && uptimeSec() > 600) {

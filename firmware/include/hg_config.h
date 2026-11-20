@@ -1,4 +1,4 @@
-// =============================================================
+﻿// =============================================================
 // HG_CONFIG - chân cắm + các mốc thời gian, dùng chung cho mọi ESP
 // -------------------------------------------------------------
 // "Kênh" trong app (1..16) = chân nào trên ESP:
@@ -10,7 +10,7 @@
 #pragma once
 #include <Arduino.h>
 
-#define HG_FW_VERSION "0.2.1"
+#define HG_FW_VERSION "0.3.0"
 
 // Cập nhật qua mạng: ESP trung tâm CHỈ tải firmware từ địa chỉ bắt đầu bằng chuỗi này,
 // và chỉ cài khi mã SHA-256 khớp với mã app gửi kèm (app đọc từ firmware/bin/manifest.json).

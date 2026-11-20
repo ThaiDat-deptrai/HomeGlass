@@ -256,6 +256,14 @@ export function createStore(initialHome, transport) {
         },
         canUpdate: typeof transport.ota === 'function',
 
+        /** Bot Telegram: tình trạng (do ESP trung tâm báo) + gửi lệnh cài đặt. */
+        telegramState: () => nodes.get(0)?.tg || null,
+        telegram(cmd) {
+            if (status !== 'online' || typeof transport.telegram !== 'function') return false;
+            return transport.telegram(cmd);
+        },
+        canTelegram: typeof transport.telegram === 'function',
+
         /** Chỉ dùng khi thử (demo): giả lập cảm biến thấy người. */
         simulate: (key, detail) => transport.simulate?.(key, detail),
         canSimulate: typeof transport.simulate === 'function',

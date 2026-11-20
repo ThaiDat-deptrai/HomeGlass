@@ -298,6 +298,10 @@ export function createMqttTransport(auth) {
                 handlers.onNodeStatus?.(t.id, { health: { ...health, at: Date.now() } });
             } else if (t.what === 'log' && data && !retained) {
                 logError(`ESP ${t.id}`, data.msg ?? data.value ?? payload);
+            } else if (t.what === 'tg' && data) {
+                // Tình trạng bot Telegram (trung tâm gửi, giữ lại). Không bao giờ có mã bot ở đây.
+                const { v, ...tg } = data;
+                handlers.onNodeStatus?.(t.id, { tg: { ...tg, at: Date.now() } });
             } else if (t.what === 'update' && data && !retained) {
                 // Tiến độ cập nhật firmware: { stage, pct, msg }
                 const { v, ...ota } = data;
@@ -355,6 +359,11 @@ export function createMqttTransport(auth) {
         /** Cập nhật firmware 1 ESP: { url, sha256, size, ver }. KHÔNG giữ lại (retained) - chỉ chạy 1 lần. */
         ota(nodeId, info) {
             return publish(topics.nodeOta(nodeId), encode(info));
+        },
+
+        /** Lệnh cho bot Telegram trên ESP trung tâm. KHÔNG giữ lại (mã bot không được nằm lại trên máy chủ). */
+        telegram(cmd) {
+            return publish(topics.telegramCmd, encode(cmd));
         },
 
         sync() { /* cấu hình mới được core/sync.js gửi đi */ },

@@ -2470,3 +2470,102 @@ html.is-login .app {
     font-size: 11px;
     font-weight: 700;
 }
+/* ================= TELEGRAM ================= */
+.tg-lead {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-2);
+}
+
+.tg-lead i,
+.tg-card__icon {
+    color: #29a9eb;
+}
+
+.tg-lead i {
+    margin-top: 3px;
+    font-size: 20px;
+}
+
+.tg-steps {
+    margin-bottom: 14px;
+}
+
+.tg-steps code,
+.tg-lead code {
+    padding: 1px 6px;
+    border-radius: 6px;
+    background: var(--icon-bg);
+    font-size: 12.5px;
+}
+
+.tg-safe {
+    margin-top: 12px;
+}
+
+.tg-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+    padding: 12px 14px;
+    border-radius: var(--r-md);
+    background: var(--icon-bg);
+}
+
+.tg-card__icon {
+    font-size: 30px;
+}
+
+.tg-card strong a {
+    color: inherit;
+}
+
+.tg-card small {
+    display: block;
+    margin-top: 2px;
+    font-size: 12.5px;
+}
+
+.tg-card small.is-good { color: var(--st-good); }
+.tg-card small.is-bad { color: var(--bad); }
+
+.tg-pair {
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    padding: 16px;
+    border-radius: var(--r-lg);
+    border: 1px dashed color-mix(in srgb, var(--accent) 50%, transparent);
+    text-align: center;
+}
+
+.tg-pair p {
+    font-size: 13px;
+    color: var(--text-2);
+}
+
+.tg-pair__code {
+    font-size: 40px;
+    font-weight: 700;
+    letter-spacing: 0.25em;
+    font-variant-numeric: tabular-nums;
+}
+
+.tg-pair small {
+    font-size: 12.5px;
+    color: var(--text-3);
+    line-height: 1.5;
+}
+
+.tg-alerts {
+    margin: 0;
+}
+
+.tg-alerts select {
+    max-width: 130px;
+}

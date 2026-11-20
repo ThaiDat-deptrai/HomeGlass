@@ -34,6 +34,8 @@ export const topics = {
     nodeCmd: id => `${ROOT}/node/${id}/cmd`,          // app -> ESP: reboot | identify | resync
     nodeOta: id => `${ROOT}/node/${id}/ota`,          // app -> trung tâm: cập nhật firmware ESP này {url, sha256, size, ver}
     nodeUpdate: id => `${ROOT}/node/${id}/update`,    // trung tâm -> app: tiến độ cập nhật {stage, pct, msg}
+    telegramCmd: `${ROOT}/node/0/tgcmd`,              // app -> trung tâm: bot Telegram {cmd: token|pair|unpair|test|alerts|remove}
+    telegram: `${ROOT}/node/0/tg`,                    // trung tâm -> app: tình trạng bot (giữ lại, KHÔNG có mã bot)
 
     // ----- Dữ liệu chung của cả nhà (giữ lại, đồng bộ giữa các điện thoại) -----
     doc: name => `${ROOT}/home/${name}`               // config | scenes | schedules
@@ -49,6 +51,7 @@ export const APP_SUBSCRIPTIONS = [
     `${ROOT}/node/+/health`,
     `${ROOT}/node/+/log`,
     `${ROOT}/node/+/update`,
+    `${ROOT}/node/0/tg`,
     `${ROOT}/home/+`
 ];
 
@@ -135,11 +138,12 @@ export function buildNodeConfigs(home, rev) {
         const table = out.get(d.node);
         if (!table) return;
         if (d.type === 'stairs') {
-            table.devices.push({ k: d.key, a: 'stairs', steps: d.steps, drv: d.driver || 'mcp23017' });
+            table.devices.push({ k: d.key, n: `${d.name} · ${d.room.name}`, a: 'stairs', steps: d.steps, drv: d.driver || 'mcp23017' });
             return;
         }
         if (d.ch === null || d.ch === undefined) return;
-        const entry = { k: d.key, ch: d.ch, a: d.actuator };
+        // n = tên hiển thị: bot Telegram dùng để hiểu "tắt đèn ngủ" và hiện tên trên nút bấm
+        const entry = { k: d.key, n: `${d.name} · ${d.room.name}`, ch: d.ch, a: d.actuator };
         if (d.actuator === 'servo') Object.assign(entry, { on: d.servo.on, off: d.servo.off, rest: d.servo.rest });
         if (d.actuator === 'relay' && d.relayLow) entry.lo = 1;
         table.devices.push(entry);

@@ -46,6 +46,10 @@ Có người gạt **công tắc tường** bằng tay: servo **không tự bi�
 | `hg/node/<số>/cmd` | app | không | `{"v":1,"cmd":"identify"}`: `identify` (nháy đèn 10 giây để tìm ESP), `reboot`, `resync` (gửi lại trạng thái) |
 | `hg/node/<số>/ota` | app | **không** (chỉ chạy 1 lần) | cập nhật firmware: `{"v":1,"url":"https://thaidat-deptrai.github.io/HomeGlass/firmware/bin/node-0.2.0.bin","sha256":"<64 hex>","size":767248,"ver":"0.2.0"}` |
 | `hg/node/<số>/update` | ESP trung tâm | không | tiến độ cập nhật: `{"v":1,"stage":"download\|send\|reboot\|done\|error","pct":40,"msg":"..."}` |
+| `hg/node/0/tgcmd` | app | **không** | bot Telegram: `{"v":1,"cmd":"token","token":"..."}` / `pair` / `unpair` / `test` / `remove` / `{"cmd":"alerts","alerts":15,"lh":3}` |
+| `hg/node/0/tg` | ESP trung tâm | **có** | tình trạng bot: `{"v":1,"on":true,"bot":"@ten_bot","ok":true,"chats":1,"pair":"4821","alerts":15,"lh":0,"err":"..."}` (**không bao giờ** có mã bot) |
+
+**Bot Telegram** chạy ngay trên ESP trung tâm (luồng riêng ở lõi 0, `firmware/src/master/telegram.*`), kiểm tra chứng chỉ thật của api.telegram.org (`ca_telegram.h`). Mã bot + danh sách người được phép nằm trong flash (NVS `hgtg`). Người lạ nhắn bot: chỉ nhận câu "bot riêng". Ghép nối: app bấm "Kết nối điện thoại" → mã 4 số hiệu lực 5 phút → link `t.me/<bot>?start=<mã>`. Lúc khởi động, bot **bỏ** các tin nhắn cũ (lệnh gửi lúc ESP tắt không tự chạy khi có điện lại). Bảng kênh có thêm `n` (tên hiển thị) để bot hiểu "tắt đèn ngủ".
 
 **Cập nhật firmware qua mạng (OTA):** app đọc `firmware/bin/manifest.json` (tạo bằng `tools/phat-hanh-firmware.ps1`), thấy bản mới hơn `fw` trong `health` thì hiện nút "Cập nhật". ESP trung tâm **chỉ** tải file có địa chỉ bắt đầu bằng `HG_OTA_URL_PREFIX` (hg_config.h) và **chỉ** cài khi SHA-256 + loại chip khớp. ESP phòng nhận file từ trung tâm qua ESP-NOW (gói 20–24, `hg_msgs.h`), tự kiểm SHA-256 lần nữa. Bản mới phải tự "chốt" (trung tâm: lên được MQTT trong 10 phút; ESP phòng: thấy trung tâm trong 5 phút), không thì tự quay về bản cũ. File cập nhật **không chứa mật khẩu**: WiFi/MQTT/khóa mạng nằm trong flash từng ESP từ lần nạp USB.
 
