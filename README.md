@@ -80,4 +80,4 @@ Nguyên tắc: **chạy chắc 1 phòng rồi mới nhân rộng.**
 
 ---
 
-Made with ❤️ by Thái Đạt · Lớp 11 · [@ThaiDat-deptrai](https://github.com/ThaiDat-deptrai)
+Made with ❤️ by Thái Đạt · Lớp 12 · [@ThaiDat-deptrai](https://github.com/ThaiDat-deptrai)
