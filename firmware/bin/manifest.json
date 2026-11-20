@@ -1,18 +1,18 @@
 {
     "v":  1,
-    "built":  "2026-11-20T02:50:10Z",
+    "built":  "2026-11-20T14:15:53Z",
     "master":  {
-                   "ver":  "0.2.0",
-                   "file":  "master-0.2.0.bin",
+                   "ver":  "0.2.1",
+                   "file":  "master-0.2.1.bin",
                    "size":  979440,
-                   "sha256":  "6d9ca3ef5614057adb4b94624c55add18a516cc0dd17b25f54430255d978bab9",
+                   "sha256":  "e36b57b2ac32800f933c7d9a71bbf37e5108825b44693a1e817602984a7a51e0",
                    "chip":  "ESP32-S3"
                },
     "node":  {
-                 "ver":  "0.2.0",
-                 "file":  "node-0.2.0.bin",
+                 "ver":  "0.2.1",
+                 "file":  "node-0.2.1.bin",
                  "size":  767248,
-                 "sha256":  "90198a252f4d8a5615ef990678d178a146c4f3cdb10b416e6a82b9ea1dbd2a42",
+                 "sha256":  "b1254d7aeac20d516a70a7776c85596aafaf4be13ed10d3e5869500936713131",
                  "chip":  "ESP32-C3"
              }
 }
